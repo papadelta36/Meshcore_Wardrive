@@ -6,7 +6,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Meshcore Signaal Meter & Wardrive Web v1.10</title>
+  <title>Meshcore Signaal Meter & Wardrive Web v1.0</title>
 
   <!-- Anti-Cache HTTP Headers for Smartphone Local Servers -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
@@ -21,7 +21,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js?v=7500').then(function(registration) {
+        navigator.serviceWorker.register('./sw.js?v=7502').then(function(registration) {
           console.log('[PWA] Service Worker registered with scope:', registration.scope);
           registration.update();
         }).catch(function(err) {
@@ -70,7 +70,7 @@
       <!-- Row 1: Filter Button + Reload + Fullscreen + Hamburger -->
       <div class="header-row-1">
         <button id="btnFilters" class="btn-filter-main" onclick="openFilterHub()">🔍 FILTERS</button>
-        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v7500</button>
+        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v7501</button>
         <button id="btnFullscreen" class="btn-fullscreen" title="Toggle Fullscreen" onclick="toggleAppFullscreen()">⛶</button>
         <button id="btnHamburger" class="btn-hamburger" title="System Hub & Settings" onclick="openSystemHub()">≡</button>
       </div>
@@ -514,7 +514,7 @@
           <button class="btn btn-primary" style="width:100%; margin-bottom:8px; font-weight:bold;" onclick="openHelpInfoModal()">📖 User Manual & Legal Notice</button>
 
           <div style="margin-top:10px; padding:10px; background:#121212; border:1px solid #FFEB3B; border-radius:6px; text-align:center;">
-            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.10</div>
+            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.0</div>
             <div style="font-weight:bold; color:#FFFFFF; font-size:0.8rem; margin-top:2px;">Designed by Papa Delta & Gemini</div>
             <div style="font-size:0.75rem; color:#AAA; margin-top:2px;">Contact: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
           </div>
@@ -537,7 +537,7 @@
 
         <!-- CREDITS BANNER -->
         <div style="padding:12px; background:#121212; border:1px solid #FFEB3B; border-radius:8px; text-align:center; margin-bottom:16px;">
-          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.10</h3>
+          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.0</h3>
           <div style="font-weight:bold; color:#FFFFFF; font-size:0.9rem;">Designed by Papa Delta & Gemini</div>
           <div style="font-size:0.8rem; color:#AAA; margin-top:4px;">Contact & Support: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
         </div>

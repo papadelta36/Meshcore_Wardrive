@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meshcore-wardrive-v7500';
+const CACHE_NAME = 'meshcore-wardrive-v7502';
 const TILE_CACHE_NAME = 'meshcore-map-tiles-v2';
 
 const ASSETS_TO_CACHE = [

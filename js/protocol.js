@@ -697,7 +697,7 @@ const ProtocolDecoder = {
       o += 4;
 
       const sIdx = (pRaw >> 6) & 0x03;
-      const sz = (sIdx === 1) ? 1 : ((sIdx === 2) ? 2 : ((sIdx === 3) ? 3 : 6));
+      const sz = sIdx + 1; // 00->1 byte, 01->2 bytes, 10->3 bytes, 11->4 bytes per official MeshCore V3 spec
       const hops = (pRaw === 0xFF) ? 0 : (pRaw & 0x3F);
 
       if (hasPath && hops > 0 && o + (hops * sz) <= data.length) {

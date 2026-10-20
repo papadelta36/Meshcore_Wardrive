@@ -2441,12 +2441,15 @@ window.closeEditScopeModal = () => {
     }
 
     // Check if matching 0x88 RF log item exists in allReceivedLogs by timestamp or message text
+    // STRICT: Exclude Advert (0x04) packets! Only match actual chat/RF log packets (0x05, 0x02, 0x10, 0x11, 0x88)
     let log = null;
-    if (entry.rawHex && entry.rawHex.startsWith("88")) {
+    if (entry.rawHex && entry.rawHex.startsWith("88") && entry.payloadType !== 0x04) {
       log = entry;
     } else {
       log = allReceivedLogs.find(l => {
         if (l.rawHex && l.rawHex.startsWith("88")) {
+          const lPType = l.meshPacket ? l.meshPacket.payloadType : l.payloadType;
+          if (lPType === 0x04) return false; // Never match Advert packets for chat Deep Dive!
           if (tsKey && l.radioTimestamp && Number(l.radioTimestamp) === Number(tsKey)) return true;
           if (cleanText && l.message && l.message.trim().toLowerCase() === cleanText.toLowerCase()) return true;
         }
@@ -2454,21 +2457,41 @@ window.closeEditScopeModal = () => {
       });
     }
 
-    // Do NOT fall back to arbitrary 0x04 Advert packets in bestSeenMap!
-    // Construct a clean Deep Dive item directly from the message entry (exact MainActivity.kt line 9019)
-    const itemToDisplay = log || {
+    // Extract cleanest repeater path from echoes or meshPacket
+    let pathList = [];
+    if (log && log.meshPacket && log.meshPacket.path && log.meshPacket.path.length > 0) {
+      pathList = log.meshPacket.path;
+    } else if (entry.meshPacket && entry.meshPacket.path && entry.meshPacket.path.length > 0) {
+      pathList = entry.meshPacket.path;
+    } else if (entry.echoes && entry.echoes.length > 0) {
+      const validEcho = entry.echoes.find(e => e && e.path && e.path.length > 0);
+      if (validEcho) pathList = validEcho.path;
+    }
+
+    const payloadTypeToUse = (log && log.meshPacket) ? log.meshPacket.payloadType :
+                             (entry.meshPacket ? entry.meshPacket.payloadType :
+                             (entry.channelIdx !== undefined && entry.channelIdx !== null ? 0x05 : 0x02));
+
+    // Construct a clean Deep Dive item directly from the message entry
+    const itemToDisplay = {
       nodeId: entry.senderId || entry.rawSenderId || "UKWN",
       sourceId: entry.senderId || entry.rawSenderId,
       senderName: entry.senderName,
-      snr: entry.snr,
-      rssi: entry.rssi,
-      hops: entry.hopCount >= 0 ? entry.hopCount : (entry.meshPacket && entry.meshPacket.hopCount >= 0 ? entry.meshPacket.hopCount : '-'),
+      snr: (log && log.snr !== undefined) ? log.snr : entry.snr,
+      rssi: (log && log.rssi !== undefined) ? log.rssi : entry.rssi,
+      hops: entry.hopCount >= 0 ? entry.hopCount : (log && log.hopCount >= 0 ? log.hopCount : '-'),
       message: entry.message,
-      rawHex: entry.rawHex,
-      meshPacket: entry.meshPacket,
+      rawHex: log ? log.rawHex : entry.rawHex,
+      meshPacket: (log && log.meshPacket) ? log.meshPacket : (entry.meshPacket || {
+        routeType: 0,
+        payloadType: payloadTypeToUse,
+        payloadVersion: 0,
+        hopCount: entry.hopCount >= 0 ? entry.hopCount : 0,
+        path: pathList
+      }),
       echoes: entry.echoes,
       time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '',
-      payloadType: entry.meshPacket ? entry.meshPacket.payloadType : (entry.recipientId ? 0x02 : 0x05)
+      payloadType: payloadTypeToUse
     };
 
     showSignalDeepDive(itemToDisplay);
