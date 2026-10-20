@@ -1,4 +1,4 @@
-# 📡 Meshcore Signaal Meter & Wardrive WebApp v1.10
+# 📡 Meshcore Signaal Meter & Wardrive WebApp v1.1
 
 A high-performance Progressive Web Application (PWA) designed for mobile RF signal measurement, wardriving, signal heatmap visualization, tactical CRT radar scanning, and encrypted mesh messaging with **Meshcore** LoRa radios over Bluetooth LE and USB Serial.
 
