@@ -8,6 +8,7 @@ let syncedChannels = [
   { index: 2, name: "Emergency NL", psk: DEFAULT_PUBLIC_PSK, scope: "#nl", isVisible: true },
   { index: 3, name: "Vlaanderen", psk: DEFAULT_PUBLIC_PSK, scope: "#vlaanderen", isVisible: true }
 ];
+window.syncedChannels = syncedChannels;
 window.clearSyncedChannels = () => { syncedChannels.length = 0; };
 
 let activeChannelIndex = 0;
@@ -360,6 +361,59 @@ window.closeEditScopeModal = () => {
   // Auto-Discover State
   let autoDiscoverTimeSec = 0;
   let autoDiscoverDistMeters = 0;
+
+  // --- Screen Wake Lock API Manager (Keeps display awake during Wardriving / BLE session) ---
+  let wakeLockSentinel = null;
+
+  async function requestScreenWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        if (!wakeLockSentinel) {
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          console.log("💡 Screen Wake Lock ACTIVE: Screen will remain awake during session.");
+
+          wakeLockSentinel.addEventListener('release', () => {
+            console.log("💡 Screen Wake Lock RELEASED.");
+            wakeLockSentinel = null;
+          });
+        }
+      } catch (err) {
+        console.warn(`⚠️ Screen Wake Lock failed: ${err.name}, ${err.message}`);
+      }
+    }
+  }
+
+  async function releaseScreenWakeLock() {
+    if (wakeLockSentinel) {
+      try {
+        await wakeLockSentinel.release();
+        wakeLockSentinel = null;
+        console.log("💡 Screen Wake Lock MANUALLY RELEASED.");
+      } catch (err) {
+        console.warn(`⚠️ Error releasing Screen Wake Lock: ${err.message}`);
+      }
+    }
+  }
+
+  async function updateScreenWakeLockState() {
+    const shouldKeepScreenAwake = isWardriveActive || (bleManager && bleManager.isConnected);
+    if (shouldKeepScreenAwake) {
+      await requestScreenWakeLock();
+    } else {
+      await releaseScreenWakeLock();
+    }
+  }
+  window.updateScreenWakeLockState = updateScreenWakeLockState;
+
+  // Re-acquire Wake Lock when browser tab/app becomes visible again
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+      const shouldKeepScreenAwake = isWardriveActive || (bleManager && bleManager.isConnected);
+      if (shouldKeepScreenAwake) {
+        await requestScreenWakeLock();
+      }
+    }
+  });
 
   // Filters State
   let filters = {
@@ -1503,6 +1557,9 @@ window.closeEditScopeModal = () => {
   function initBleManager() {
     bleManager.onStatusChanged = (statusMsg, isOnline) => {
       updateBleStatusText();
+      if (typeof updateScreenWakeLockState === 'function') {
+        updateScreenWakeLockState();
+      }
       if (isOnline) {
         // Auto-close System Hub and jump to main screen when BLE successfully connects!
         setTimeout(() => {
@@ -1966,10 +2023,18 @@ window.closeEditScopeModal = () => {
                         putAndTrimMap(recentRfLogsByText, cleanMsgText, heardPath);
                         putAndTrimMap(recentRfLogsRawByText, cleanMsgText, rawHex);
 
+                        // Update bestSeenMap entry directly if present
+                        const key = nodeId.toUpperCase().trim();
+                        const currentBest = bestSeenMap.get(key);
+                        if (currentBest) {
+                          currentBest.decryptedContent = cleanMsgText;
+                          currentBest.message = cleanMsgText;
+                        }
+
                         const messageMatch = sessionMessageHistory.findLast(m => {
                           if ((Date.now() - m.timestamp) > 60000) return false;
 
-                          const histText = m.message.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim().toLowerCase();
+                          const histText = (m.message || "").replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim().toLowerCase();
                           const targetText = cleanMsgText.toLowerCase();
 
                           return histText === targetText ||
@@ -1979,7 +2044,10 @@ window.closeEditScopeModal = () => {
                                  targetText.includes(histText);
                         });
 
-                        correlateMessageWithRfLog(messageMatch);
+                        if (messageMatch) {
+                          correlateMessageWithRfLog(messageMatch);
+                        }
+                        updateUILists();
                       }
                     }
                   } catch (e) {
@@ -2003,10 +2071,17 @@ window.closeEditScopeModal = () => {
                   putAndTrimMap(recentRfLogsByText, cleanMsgText, heardPath);
                   putAndTrimMap(recentRfLogsRawByText, cleanMsgText, rawHex);
 
+                  const key = nodeId.toUpperCase().trim();
+                  const currentBest = bestSeenMap.get(key);
+                  if (currentBest) {
+                    currentBest.decryptedContent = cleanMsgText;
+                    currentBest.message = cleanMsgText;
+                  }
+
                   const messageMatch = sessionMessageHistory.findLast(m => {
                     if ((Date.now() - m.timestamp) > 60000) return false;
 
-                    const histText = m.message.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim().toLowerCase();
+                    const histText = (m.message || "").replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim().toLowerCase();
                     const targetText = cleanMsgText.toLowerCase();
 
                     return histText === targetText ||
@@ -2016,7 +2091,10 @@ window.closeEditScopeModal = () => {
                            targetText.includes(histText);
                   });
 
-                  correlateMessageWithRfLog(messageMatch);
+                  if (messageMatch) {
+                    correlateMessageWithRfLog(messageMatch);
+                  }
+                  updateUILists();
                 }
               }
             } catch (e) {}
@@ -2612,9 +2690,23 @@ window.closeEditScopeModal = () => {
     triggerSystemNotification(nodeId, text, scopeName);
   }
 
-  function triggerSystemNotification(nodeId, text, scopeName = null) {
+  function warmupAudioContext() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
+      if (sharedAudioCtx.state === 'suspended') {
+        sharedAudioCtx.resume();
+      }
+    } catch (e) {
+      console.warn("AudioContext warmup notice:", e);
+    }
+  }
+  window.warmupAudioContext = warmupAudioContext;
+
+  async function triggerSystemNotification(nodeId, text, scopeName = null) {
     const cbMsg = document.getElementById('cbMsgEnabled');
-    if (!cbMsg || !cbMsg.checked) return;
+    if (cbMsg && !cbMsg.checked) return;
 
     if ("Notification" in window && Notification.permission === "granted") {
       try {
@@ -2625,18 +2717,24 @@ window.closeEditScopeModal = () => {
         const title = `💬 ${dispName}${scopeTag}`;
         const options = {
           body: text,
-          icon: './icons/icon-192.png',
-          badge: './icons/icon-192.png',
+          icon: './manifest.json',
+          badge: './manifest.json',
           tag: `meshcore_msg_${Date.now()}`,
           renotify: true,
-          vibrate: [200, 100, 200]
+          vibrate: [200, 100, 200],
+          data: { url: window.location.href }
         };
 
-        const notif = new Notification(title, options);
-        notif.onclick = () => {
-          try { window.focus(); } catch (e) {}
-          switchNavTab('chat');
-        };
+        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(title, options);
+        } else {
+          const notif = new Notification(title, options);
+          notif.onclick = () => {
+            try { window.focus(); } catch (e) {}
+            if (typeof switchNavTab === 'function') switchNavTab('chat');
+          };
+        }
       } catch (e) {
         console.warn("System Notification notice:", e);
       }
@@ -2644,16 +2742,20 @@ window.closeEditScopeModal = () => {
   }
   window.triggerSystemNotification = triggerSystemNotification;
 
-  window.requestNotificationPermission = () => {
+  window.requestNotificationPermission = async () => {
+    warmupAudioContext();
     if ("Notification" in window) {
       if (Notification.permission === "default") {
-        Notification.requestPermission().then(permission => {
+        try {
+          const permission = await Notification.requestPermission();
           if (permission === "granted") {
             showToastMessage("🔔 Web Notifications Enabled!");
           } else {
             showToastMessage("🔔 Notifications Permission Denied");
           }
-        });
+        } catch (e) {
+          console.warn("Notification request notice:", e);
+        }
       } else if (Notification.permission === "granted") {
         showToastMessage("🔔 Notifications Already Enabled");
       } else {
@@ -3967,10 +4069,10 @@ window.closeEditScopeModal = () => {
             const decrypted = await ProtocolDecoder.Crypto.decryptAES(psk, encrypted);
             if (decrypted && decrypted.length >= 5) {
               const textBytes = decrypted.slice(5);
-              const textRaw = new TextDecoder("utf-8").decode(textBytes).split('\0')[0];
-              const decodedText = ProtocolDecoder.tryDecodePrefixed(textRaw);
-              const { sender, body } = ProtocolDecoder.splitSenderAndText(decodedText);
-              extractedMsg = sender ? `${sender}: ${body}` : body;
+              const decodedText = ProtocolDecoder.tryDecodePrefixed(textBytes);
+              const split = ProtocolDecoder.splitSenderAndText(decodedText);
+              const body = split.body || decodedText;
+              extractedMsg = split.sender ? `${split.sender}: ${body}` : body;
               if (extractedMsg) {
                 item.decryptedContent = extractedMsg;
                 break;
@@ -5483,6 +5585,7 @@ window.closeEditScopeModal = () => {
           window.renderSavedTrips();
         }
       }
+      if (typeof updateScreenWakeLockState === 'function') updateScreenWakeLockState();
       if (typeof updateNavItemsVisibility === 'function') updateNavItemsVisibility();
     };
   }
@@ -5778,6 +5881,10 @@ window.closeEditScopeModal = () => {
         const unread = unreadCounts.get(`CH:${ch.index}`) || 0;
         const isActive = activeDirectNodeId === null && activeChannelIndex === ch.index;
 
+        const deleteBtn = ch.index > 0
+          ? `<button class="btn btn-danger" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
+          : '';
+
         const item = document.createElement('div');
         item.className = `channel-picker-item ${isActive ? 'active' : ''}`;
         item.innerHTML = `
@@ -5785,9 +5892,10 @@ window.closeEditScopeModal = () => {
             <span class="channel-name">${unread > 0 ? '🔴 ' : ''}CH${ch.index}: ${ch.name} ${unread > 0 ? `(${unread})` : ''}</span>
             <span class="channel-scope">Scope: ${ch.scope || 'Global (Unscoped)'}</span>
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">
+          <div style="display:flex; align-items:center; gap:6px;">
             ${isActive ? '<span class="channel-status">ACTIVE</span>' : ''}
-            <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.openEditScopeForChannel(${ch.index});">✏️ Edit Scope</button>
+            <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.openEditScopeForChannel(${ch.index});">✏️ Scope</button>
+            ${deleteBtn}
           </div>
         `;
 
@@ -5871,26 +5979,211 @@ window.closeEditScopeModal = () => {
     }
   };
 
-  window.promptAddChannel = () => {
-    const name = prompt("Enter Channel Name (e.g. Regio BE, Emergency NL, Admin):", "Regio Channel");
-    if (!name) return;
-    const scope = prompt("Enter Region Scope for this channel (e.g. #be, #nl, #vlaanderen):", "#be");
+  function generateRandomPsk() {
+    const array = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(array);
+    } else {
+      for (let i = 0; i < 16; i++) array[i] = Math.floor(Math.random() * 256);
+    }
+    return array;
+  }
 
-    const newIdx = syncedChannels.length;
-    syncedChannels.push({
-      index: newIdx,
-      name: name.trim(),
-      scope: scope && scope.trim() && scope.trim() !== "*" ? (scope.trim().startsWith('#') ? scope.trim() : `#${scope.trim()}`) : null,
+  window.openAddChannelModal = () => {
+    if (!bleManager || !bleManager.isConnected) {
+      alert("⚠️ Bluetooth LE Companion Node not connected. Please connect BLE first.");
+      return;
+    }
+
+    const selSlot = document.getElementById('selChannelSlot');
+    if (selSlot) {
+      selSlot.innerHTML = '';
+      for (let i = 1; i < 40; i++) {
+        const existing = syncedChannels.find(c => c.index === i);
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = existing ? `Slot ${i} (${existing.name})` : `Slot ${i} (Empty)`;
+        selSlot.appendChild(opt);
+      }
+      const firstEmpty = Array.from(selSlot.options).find(o => o.innerText.includes('(Empty)'));
+      if (firstEmpty) selSlot.value = firstEmpty.value;
+    }
+
+    const txtName = document.getElementById('txtChannelName');
+    if (txtName) txtName.value = '';
+
+    const txtPsk = document.getElementById('txtChannelPskHex');
+    if (txtPsk) txtPsk.value = '';
+
+    const rads = document.getElementsByName('radChannelType');
+    if (rads && rads.length > 0) rads[0].checked = true;
+
+    window.onChannelTypeChanged();
+
+    const el = document.getElementById('modalAddChannel');
+    if (el) el.classList.add('active');
+  };
+
+  window.closeAddChannelModal = () => {
+    const el = document.getElementById('modalAddChannel');
+    if (el) el.classList.remove('active');
+  };
+
+  window.onChannelTypeChanged = () => {
+    const rads = document.getElementsByName('radChannelType');
+    let selectedVal = 'hashtag';
+    for (const r of rads) {
+      if (r.checked) { selectedVal = r.value; break; }
+    }
+    const container = document.getElementById('divPskHexContainer');
+    if (container) {
+      container.style.display = (selectedVal === 'private_hex') ? 'block' : 'none';
+    }
+  };
+
+  window.submitCreateChannel = async () => {
+    if (!bleManager || !bleManager.isConnected) {
+      alert("⚠️ Bluetooth LE Companion Node not connected. Please connect BLE first.");
+      return;
+    }
+
+    const selSlot = document.getElementById('selChannelSlot');
+    const slotIndex = selSlot ? parseInt(selSlot.value) : 1;
+
+    const txtName = document.getElementById('txtChannelName');
+    let nameInput = txtName ? txtName.value.trim() : "";
+    if (!nameInput) {
+      alert("⚠️ Please enter a Channel Name.");
+      return;
+    }
+
+    const rads = document.getElementsByName('radChannelType');
+    let selectedType = 'hashtag';
+    for (const r of rads) {
+      if (r.checked) { selectedType = r.value; break; }
+    }
+
+    let pskBytes = null;
+    let pskHexToDisplay = null;
+
+    if (selectedType === 'hashtag') {
+      // 🏷️ HASHTAG CHANNEL: Ensure name starts with '#'
+      if (!nameInput.startsWith("#")) {
+        nameInput = "#" + nameInput;
+      }
+      pskBytes = await bleManager.deriveHashtagPsk(nameInput);
+    } else {
+      // 🔒 / 🔑 PRIVATE CHANNEL: Ensure name does NOT start with '#'
+      while (nameInput.startsWith("#")) {
+        nameInput = nameInput.substring(1).trim();
+      }
+      if (!nameInput) {
+        alert("⚠️ Please enter a valid Private Channel Name (without '#').");
+        return;
+      }
+
+      if (selectedType === 'private_random') {
+        pskBytes = generateRandomPsk();
+        pskHexToDisplay = ProtocolDecoder.bytesToHex(pskBytes);
+      } else if (selectedType === 'private_hex') {
+        const txtPsk = document.getElementById('txtChannelPskHex');
+        const hexStr = txtPsk ? txtPsk.value.trim().replace(/\s+/g, '') : "";
+        if (hexStr.length !== 32) {
+          alert("⚠️ Hex PSK must be exactly 32 characters (16 bytes).");
+          return;
+        }
+        try {
+          pskBytes = ProtocolDecoder.hexToBytes(hexStr);
+        } catch (e) {
+          alert("⚠️ Invalid Hex PSK format.");
+          return;
+        }
+      }
+    }
+
+    showToastMessage(`Sending channel creation command for '${nameInput}' at Slot ${slotIndex}...`);
+    const finalPsk = pskBytes || (await bleManager.deriveHashtagPsk(nameInput));
+    await bleManager.sendSetChannel(slotIndex, nameInput, finalPsk);
+
+    // Explicitly update local syncedChannels array in app.js
+    const existingIdx = syncedChannels.findIndex(c => c.index === slotIndex);
+    const newChObj = {
+      index: slotIndex,
+      name: nameInput,
+      psk: finalPsk,
+      scope: null,
       isVisible: true
-    });
+    };
+    if (existingIdx !== -1) {
+      syncedChannels[existingIdx] = newChObj;
+    } else {
+      syncedChannels.push(newChObj);
+      syncedChannels.sort((a, b) => a.index - b.index);
+    }
 
-    activeChannelIndex = newIdx;
+    activeChannelIndex = slotIndex;
     activeDirectNodeId = null;
     activeDirectNodeName = null;
 
+    window.closeAddChannelModal();
+    if (typeof window.closeChannelPickerModal === 'function') window.closeChannelPickerModal();
+
+    if (pskHexToDisplay) {
+      if (confirm(`🔒 Private Channel Created!\n\nChannel '${nameInput}' created in Slot ${slotIndex}!\n\n32-Character Hex PSK:\n${pskHexToDisplay}\n\nClick OK to copy this 32-Hex Key to clipboard.`)) {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(pskHexToDisplay);
+          showToastMessage("📋 PSK copied to clipboard!");
+        }
+      }
+    } else {
+      showToastMessage(`✅ Channel '${nameInput}' added to Slot ${slotIndex}!`);
+    }
+
     updateMessengerHeaderSelect();
-    if (typeof window.refreshMessengerHeaderTitle === 'function') window.refreshMessengerHeaderTitle();
-    window.populateChannelPickerList();
+    if (typeof window.refreshMessengerHeaderTitle === 'function') refreshMessengerHeaderTitle();
+    if (typeof window.populateChannelPickerList === 'function') window.populateChannelPickerList();
+    refreshChatMessageHistory();
+  };
+
+  window.promptAddChannel = () => {
+    window.openAddChannelModal();
+  };
+
+  window.confirmDeleteChannel = async (slotIndex) => {
+    if (!bleManager || !bleManager.isConnected) {
+      alert("⚠️ Bluetooth LE Companion Node not connected. Please connect BLE first.");
+      return;
+    }
+
+    const ch = syncedChannels.find(c => c.index === slotIndex);
+    if (!ch) return;
+
+    if (slotIndex === 0) {
+      alert("⚠️ Slot 0 (Public Channel) cannot be deleted.");
+      return;
+    }
+
+    if (!confirm(`🗑️ Delete Channel '${ch.name}' (Slot ${slotIndex}) from the companion node?`)) {
+      return;
+    }
+
+    showToastMessage(`Deleting channel '${ch.name}' at Slot ${slotIndex}...`);
+    await bleManager.deleteChannel(slotIndex);
+
+    // Explicitly remove from local syncedChannels array
+    const delIdx = syncedChannels.findIndex(c => c.index === slotIndex);
+    if (delIdx !== -1) {
+      syncedChannels.splice(delIdx, 1);
+    }
+
+    if (activeChannelIndex === slotIndex && activeDirectNodeId === null) {
+      activeChannelIndex = 0;
+    }
+    showToastMessage(`🗑️ Channel '${ch.name}' deleted from Slot ${slotIndex}!`);
+    updateMessengerHeaderSelect();
+    if (typeof window.refreshMessengerHeaderTitle === 'function') refreshMessengerHeaderTitle();
+    if (typeof window.populateChannelPickerList === 'function') window.populateChannelPickerList();
+    if (typeof window.populateChannelVisibilityModal === 'function') window.populateChannelVisibilityModal();
     refreshChatMessageHistory();
   };
 
@@ -5944,14 +6237,18 @@ window.closeEditScopeModal = () => {
       } else {
         syncedChannels.forEach(ch => {
           const row = document.createElement('div');
-          row.style.padding = '8px 0';
-          row.style.borderBottom = '1px solid #333';
+          row.style.cssText = 'padding:8px 0; border-bottom:1px solid #333; display:flex; align-items:center; justify-content:space-between;';
+
+          const deleteBtnHtml = ch.index > 0
+            ? `<button class="btn btn-danger" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
+            : '';
 
           row.innerHTML = `
             <label class="cb-label-block" style="margin:0; font-size:0.85rem; cursor:pointer;">
               <input type="checkbox" id="chkChanVis_${ch.index}" ${ch.isVisible !== false ? 'checked' : ''} />
               <span style="font-weight:bold; color:#FFF; margin-left:6px;">CH${ch.index}: ${ch.name}</span>
             </label>
+            ${deleteBtnHtml}
           `;
           listEl.appendChild(row);
         });
@@ -6411,7 +6708,11 @@ window.closeEditScopeModal = () => {
   // BLE Connect & Disconnect
   const btnBle = document.getElementById('btnConnectBle');
   if (btnBle) {
-    btnBle.onclick = () => bleManager.connect();
+    btnBle.onclick = () => {
+      if (typeof warmupAudioContext === 'function') warmupAudioContext();
+      if (typeof requestNotificationPermission === 'function') requestNotificationPermission();
+      bleManager.connect();
+    };
   }
 
   const btnDisconnectBle = document.getElementById('btnDisconnectBle');

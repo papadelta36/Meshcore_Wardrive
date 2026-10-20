@@ -21,7 +21,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js?v=7502').then(function(registration) {
+        navigator.serviceWorker.register('./sw.js?ts=20260330154800').then(function(registration) {
           console.log('[PWA] Service Worker registered with scope:', registration.scope);
           registration.update();
         }).catch(function(err) {
@@ -70,7 +70,7 @@
       <!-- Row 1: Filter Button + Reload + Fullscreen + Hamburger -->
       <div class="header-row-1">
         <button id="btnFilters" class="btn-filter-main" onclick="openFilterHub()">🔍 FILTERS</button>
-        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v7501</button>
+        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v1.0</button>
         <button id="btnFullscreen" class="btn-fullscreen" title="Toggle Fullscreen" onclick="toggleAppFullscreen()">⛶</button>
         <button id="btnHamburger" class="btn-hamburger" title="System Hub & Settings" onclick="openSystemHub()">≡</button>
       </div>
@@ -358,6 +358,55 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeChannelPickerModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / CREATE CHANNEL (Exact 1:1 Match with MainActivity.kt showCreateChannelDialog) -->
+  <div id="modalAddChannel" class="modal">
+    <div class="modal-content" style="max-width:500px;">
+      <div class="modal-header">
+        <h2>➕ Create / Join Channel</h2>
+        <span class="close-modal" onclick="closeAddChannelModal()">&times;</span>
+      </div>
+      <div class="modal-body" style="font-size:0.88rem;">
+        <!-- Slot Selector -->
+        <div style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; background:#1E1E1E; padding:8px 12px; border-radius:6px; border:1px solid #333;">
+          <label for="selChannelSlot" style="font-weight:bold; color:#AAA;">Target Slot (1-39):</label>
+          <select id="selChannelSlot" style="background:#2A2A2A; color:#FFF; padding:6px 12px; border:1px solid #444; border-radius:6px; font-weight:bold;"></select>
+        </div>
+
+        <!-- Channel Type Options -->
+        <div style="background:#1E1E1E; padding:10px 12px; border-radius:6px; border:1px solid #333; margin-bottom:12px; display:flex; flex-direction:column; gap:8px;">
+          <label style="color:#FFF; cursor:pointer; font-weight:bold; display:flex; align-items:center; gap:8px;">
+            <input type="radio" name="radChannelType" value="hashtag" checked onchange="onChannelTypeChanged()" />
+            🏷️ Hashtag Channel (e.g. #wardrive, #Belgium)
+          </label>
+          <label style="color:#FFF; cursor:pointer; font-weight:bold; display:flex; align-items:center; gap:8px;">
+            <input type="radio" name="radChannelType" value="private_random" onchange="onChannelTypeChanged()" />
+            🔒 Create Private Channel (Random AES Key)
+          </label>
+          <label style="color:#FFF; cursor:pointer; font-weight:bold; display:flex; align-items:center; gap:8px;">
+            <input type="radio" name="radChannelType" value="private_hex" onchange="onChannelTypeChanged()" />
+            🔑 Join Private Channel (Paste 32-Hex Key)
+          </label>
+        </div>
+
+        <!-- Channel Name Input -->
+        <div style="margin-bottom:12px;">
+          <label for="txtChannelName" style="display:block; color:#AAA; font-size:0.8rem; font-weight:bold; margin-bottom:4px;">Channel Name:</label>
+          <input type="text" id="txtChannelName" placeholder="e.g. #wardrive or Secret Group" style="width:100%; padding:10px; background:#2A2A2A; border:1px solid #444; color:#FFF; border-radius:6px; font-weight:bold;" />
+        </div>
+
+        <!-- Secret PSK Hex Input (Shown only when Join Private Channel is selected) -->
+        <div id="divPskHexContainer" style="margin-bottom:12px; display:none;">
+          <label for="txtChannelPskHex" style="display:block; color:#AAA; font-size:0.8rem; font-weight:bold; margin-bottom:4px;">32-Character Hex PSK (AES-128 Key):</label>
+          <input type="text" id="txtChannelPskHex" placeholder="e.g. 4a8f12b39c0e123456789abcdef01234" maxlength="32" style="width:100%; padding:10px; background:#2A2A2A; border:1px solid #00FFC8; color:#00FFC8; border-radius:6px; font-family:monospace; font-weight:bold;" />
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeAddChannelModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1; background:#4CAF50; border-color:#4CAF50; font-weight:bold;" onclick="submitCreateChannel()">➕ Create Channel</button>
       </div>
     </div>
   </div>

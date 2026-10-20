@@ -23,6 +23,15 @@ class MeshcoreBleManager {
     this.SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
     this.TX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Write
     this.RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Notify
+
+    // Auto-Reconnect & Heartbeat State
+    this.userRequestedDisconnect = false;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectTimer = null;
+    this.isAutoReconnecting = false;
+    this.heartbeatTimer = null;
+    this.heartbeatIntervalMs = 30000; // Send heartbeat ping every 30 seconds
   }
 
   async connect() {
@@ -40,6 +49,13 @@ class MeshcoreBleManager {
     }
 
     try {
+      this.userRequestedDisconnect = false;
+      this.reconnectAttempts = 0;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+
       this.updateStatus("Scanning for Meshcore BLE devices...");
 
       // Allow picking ANY MeshCore device without restrictive hardcoded name filters!
@@ -120,10 +136,13 @@ class MeshcoreBleManager {
 
       this.isConnecting = false;
       this.isConnected = true;
+      this.isAutoReconnecting = false;
+      this.reconnectAttempts = 0;
       this.updateStatus(`Connected to ${this.getConnectedDeviceName()}`, true);
 
-      // Perform Official Meshcore Handshake (Device Query -> Battery Request -> App Start -> Fetch Contacts & Channels)
+      // Perform Official Meshcore Handshake & Start Heartbeat
       this.sendHandshake();
+      this.startHeartbeat();
 
       return true;
     } catch (err) {
@@ -238,6 +257,93 @@ class MeshcoreBleManager {
 
       await this.requestNextChannelIndex();
     }, 1200);
+  }
+
+  async deriveHashtagPsk(hashtag) {
+    if (!hashtag) return new Uint8Array(16);
+    const cleanTag = hashtag.trim().replace(/^#/, '');
+    const encoder = new TextEncoder();
+    const data = encoder.encode(cleanTag);
+    try {
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      return new Uint8Array(hashBuffer, 0, 16);
+    } catch (e) {
+      const psk = new Uint8Array(16);
+      for (let i = 0; i < data.length; i++) {
+        psk[i % 16] ^= data[i];
+      }
+      return psk;
+    }
+  }
+
+  async sendSetChannel(slotIndex, name, pskBytes = null) {
+    if (!this.isConnected || !this.txCharacteristic) {
+      console.warn("Cannot set channel: BLE disconnected.");
+      return false;
+    }
+
+    const cleanName = (name || "").trim();
+    if (cleanName.length === 0) return false;
+
+    let finalPsk = new Uint8Array(16);
+    if (pskBytes && pskBytes.length >= 16) {
+      finalPsk.set(pskBytes.subarray(0, 16));
+    } else if (cleanName.startsWith("#") || !pskBytes) {
+      finalPsk = await this.deriveHashtagPsk(cleanName);
+    }
+
+    const buf = new Uint8Array(50);
+    buf[0] = 0x20; // CMD_SET_CHANNEL = 32 (0x20)
+    buf[1] = slotIndex & 0xFF;
+
+    const nameBytes = new TextEncoder().encode(cleanName);
+    buf.set(nameBytes.subarray(0, Math.min(nameBytes.length, 32)), 2);
+    buf.set(finalPsk.subarray(0, 16), 34);
+
+    console.log(`Sending CMD_SET_CHANNEL (0x20): slot=${slotIndex}, name="${cleanName}"`);
+    await this.writeBytes(buf);
+
+    if (window.syncedChannels) {
+      const idx = window.syncedChannels.findIndex(c => c.index === slotIndex);
+      const chObj = {
+        index: slotIndex,
+        name: cleanName,
+        psk: finalPsk,
+        isVisible: true,
+        scope: null
+      };
+      if (idx !== -1) {
+        window.syncedChannels[idx] = chObj;
+      } else {
+        window.syncedChannels.push(chObj);
+        window.syncedChannels.sort((a, b) => a.index - b.index);
+      }
+    }
+
+    return true;
+  }
+
+  async deleteChannel(slotIndex) {
+    if (!this.isConnected || !this.txCharacteristic) {
+      console.warn("Cannot delete channel: BLE disconnected.");
+      return false;
+    }
+
+    const buf = new Uint8Array(50);
+    buf[0] = 0x20; // CMD_SET_CHANNEL = 32 (0x20)
+    buf[1] = slotIndex & 0xFF;
+
+    console.log(`Sending CMD_SET_CHANNEL Delete (0x20): clearing slot=${slotIndex}`);
+    await this.writeBytes(buf);
+
+    if (window.syncedChannels) {
+      const idx = window.syncedChannels.findIndex(c => c.index === slotIndex);
+      if (idx !== -1) {
+        window.syncedChannels.splice(idx, 1);
+      }
+    }
+
+    return true;
   }
 
   async syncNextMessage() {
@@ -362,6 +468,12 @@ class MeshcoreBleManager {
 
   disconnect() {
     console.log("Disconnecting Web Bluetooth GATT server...");
+    this.userRequestedDisconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopHeartbeat();
     this.isConnected = false;
     if (this.device && this.device.gatt) {
       try {
@@ -436,8 +548,107 @@ class MeshcoreBleManager {
     this.isConnecting = false;
     this.isConnected = false;
     this.connectedBatteryVoltage = null;
+    this.stopHeartbeat();
+
+    // Check if auto-reconnect should be triggered (unexpected GATT drop)
+    if (!this.userRequestedDisconnect && this.device && this.device.gatt) {
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        this.isAutoReconnecting = true;
+        const delayMs = Math.min(30000, 2000 * Math.pow(1.5, this.reconnectAttempts - 1)); // ~2s, 3s, 4.5s, 6.7s, 10s
+        const devName = this.getConnectedDeviceName();
+        this.updateStatus(`🔄 Connection lost. Reconnecting to ${devName} (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${Math.round(delayMs/1000)}s...`, false);
+
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => {
+          this.attemptReconnection();
+        }, delayMs);
+        return;
+      } else {
+        console.warn("Max BLE auto-reconnect attempts reached.");
+      }
+    }
+
+    this.reconnectAttempts = 0;
+    this.isAutoReconnecting = false;
     this.updateStatus("Disconnected", false);
     this.notifyProgress("Complete", 0, 0);
+  }
+
+  async attemptReconnection() {
+    if (this.isConnected || !this.device || !this.device.gatt || this.userRequestedDisconnect) return;
+
+    const devName = this.getConnectedDeviceName();
+    this.updateStatus(`🔄 Auto-Reconnecting to ${devName}...`);
+
+    try {
+      this.gattServer = await this.device.gatt.connect();
+
+      const service = await this.gattServer.getPrimaryService(this.SERVICE_UUID);
+      const chars = await service.getCharacteristics();
+
+      this.txCharacteristic = null;
+      this.rxCharacteristic = null;
+
+      for (const char of chars) {
+        const uuidLower = char.uuid.toLowerCase();
+        if (uuidLower === this.TX_CHAR_UUID.toLowerCase() || char.properties.write || char.properties.writeWithoutResponse) {
+          if (!this.txCharacteristic || uuidLower === this.TX_CHAR_UUID.toLowerCase()) {
+            this.txCharacteristic = char;
+          }
+        }
+        if (uuidLower === this.RX_CHAR_UUID.toLowerCase() || char.properties.notify || char.properties.indicate) {
+          if (!this.rxCharacteristic || uuidLower === this.RX_CHAR_UUID.toLowerCase()) {
+            this.rxCharacteristic = char;
+          }
+        }
+      }
+
+      if (!this.txCharacteristic || !this.rxCharacteristic) {
+        throw new Error("Reconnection failed: missing characteristics.");
+      }
+
+      await this.rxCharacteristic.startNotifications();
+      this.rxCharacteristic.addEventListener('characteristicvaluechanged', (e) => this.handleIncomingData(e));
+
+      this.isConnected = true;
+      this.isAutoReconnecting = false;
+      this.reconnectAttempts = 0;
+      this.updateStatus(`Connected to ${this.getConnectedDeviceName()}`, true);
+
+      // Re-run handshake and start heartbeat
+      this.sendHandshake();
+      this.startHeartbeat();
+
+    } catch (err) {
+      console.warn("BLE Auto-Reconnect Attempt Failed:", err);
+      // Trigger next reconnect cycle via onDisconnected logic
+      this.onDisconnected();
+    }
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(async () => {
+      if (this.isConnected && this.txCharacteristic) {
+        try {
+          // Send CMD_GET_DEVICE_TIME (0x05) as light heartbeat ping (exact WardriveService.kt ping)
+          await this.writeBytes(new Uint8Array([0x05]));
+          console.log("💓 BLE Heartbeat ping sent (0x05)");
+        } catch (e) {
+          console.warn("💓 BLE Heartbeat ping failed:", e);
+        }
+      } else {
+        this.stopHeartbeat();
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   getConnectedDeviceName() {

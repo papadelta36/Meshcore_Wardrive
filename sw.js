@@ -1,4 +1,5 @@
-const CACHE_NAME = 'meshcore-wardrive-v7502';
+const BUILD_TIMESTAMP = '20260330_154800';
+const CACHE_NAME = 'meshcore-wardrive-v1.0-' + BUILD_TIMESTAMP;
 const TILE_CACHE_NAME = 'meshcore-map-tiles-v2';
 
 const ASSETS_TO_CACHE = [
@@ -99,4 +100,21 @@ self.addEventListener('fetch', (e) => {
       })
     );
   }
+});
+
+// 3. System Web Push & Notification Click Handler
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow('./index.html');
+      }
+    })
+  );
 });

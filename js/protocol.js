@@ -706,11 +706,10 @@ const ProtocolDecoder = {
 
       if (o < data.length) {
         const rawBytes = data.slice(o);
-        const rawStr = new TextDecoder("utf-8").decode(rawBytes).split('\0')[0];
-        const decStr = this.tryDecodePrefixed(rawStr);
+        const decStr = this.tryDecodePrefixed(rawBytes);
         const split = this.splitSenderAndText(decStr);
 
-        let disp = split.body;
+        let disp = split.body || decStr;
         if (split.sender) disp = `${split.sender}: ${disp}`;
         if (!isDM) {
            disp = `[CH${cIdx}] ${disp}`;
@@ -880,11 +879,10 @@ const ProtocolDecoder = {
         return { type: "Advert", rawPayload: data, pubKey: pubKeyHex, flags, lat, lon, name };
       }
     } else if (type === 0x02) {
-      // TxtMsg (TS 4 bytes + TxtType 1 byte + UTF-8 Msg Text - Exact MeshCoreDecoders.kt line 258)
+      // TxtMsg (TS 4 bytes + TxtType 1 byte + Msg Text)
       if (data.length >= 5) {
         const textBytes = data.slice(5);
-        const textRaw = new TextDecoder("utf-8").decode(textBytes).split('\0')[0].trim();
-        const textDec = this.tryDecodePrefixed(textRaw);
+        const textDec = this.tryDecodePrefixed(textBytes);
         return { type: "TxtMsg", rawPayload: data, text: textDec };
       }
     }
