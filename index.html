@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Meshcore Signaal Meter & Wardrive Web v1.10</title>
+
+  <!-- Anti-Cache HTTP Headers for Smartphone Local Servers -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4CAF50">
+
+  <!-- Register PWA Service Worker for 100% Offline Capability (Works without Webserver or Internet) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js?v=7500').then(function(registration) {
+          console.log('[PWA] Service Worker registered with scope:', registration.scope);
+          registration.update();
+        }).catch(function(err) {
+          console.warn('[PWA] Service Worker registration failed:', err);
+        });
+
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', function() {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+      });
+    }
+
+    // Auto-Fullscreen Trigger on First User Interaction (bypasses browser gesture restriction)
+    window.addEventListener('click', function autoFullscreenOnFirstInteraction() {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const docEl = document.documentElement;
+        if (docEl.requestFullscreen) docEl.requestFullscreen().catch(() => {});
+        else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
+      }
+    }, { once: true });
+
+    // Handle PWA Install Prompt without blocking UI
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent browser default banner if needed or store event for custom install button
+      window.deferredPwaPrompt = e;
+    });
+  </script>
+
+  <!-- MapLibre GL CSS (Pure Vector/Raster GPU Engine) -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="./vendor/fontawesome/all.min.css" />
+  <!-- Custom Style (Auto-Busted) -->
+  <script>document.write('<link rel="stylesheet" href="./css/style.css?v=' + Date.now() + '">');</script>
+</head>
+<body>
+
+  <!-- DASHBOARD HEADER GROUP (Top Controls + Radar Card + VU Meters) -->
+  <div id="dashboardHeaderGroup" class="dashboard-header-group">
+    <!-- TOP SETTINGS & CONTROLS CARD -->
+    <header class="app-header">
+      <!-- Row 1: Filter Button + Reload + Fullscreen + Hamburger -->
+      <div class="header-row-1">
+        <button id="btnFilters" class="btn-filter-main" onclick="openFilterHub()">🔍 FILTERS</button>
+        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v7500</button>
+        <button id="btnFullscreen" class="btn-fullscreen" title="Toggle Fullscreen" onclick="toggleAppFullscreen()">⛶</button>
+        <button id="btnHamburger" class="btn-hamburger" title="System Hub & Settings" onclick="openSystemHub()">≡</button>
+      </div>
+
+      <!-- Row 2: Start + Checkboxes + Trips -->
+      <div class="header-row-2">
+        <button id="btnStart" class="btn-start">START</button>
+
+        <div class="checkboxes-group">
+          <label class="cb-label"><input type="checkbox" id="cbFocusEnabled" /> Filter</label>
+          <label class="cb-label"><input type="checkbox" id="cbBeepEnabled" /> Beep</label>
+          <label class="cb-label"><input type="checkbox" id="cbMsgEnabled" checked /> Msg</label>
+          <label class="cb-label"><input type="checkbox" id="cbAutoDiscover" /> Auto</label>
+        </div>
+
+        <button id="btnTrips" class="btn-trips" onclick="openTripsManager()">TRIPS</button>
+      </div>
+
+      <div class="divider-line"></div>
+
+      <!-- Row 3: Status Indicators -->
+      <div class="header-row-3">
+        <span id="tvBleStatus" class="status-text status-off">🔴 Bluetooth: Disconnected</span>
+        <span id="tvGpsStatus" class="status-text status-off">0 KM/H | GPS: Offline</span>
+      </div>
+
+      <!-- Sync Progress Area -->
+      <div id="llSyncArea" class="sync-area" style="display: none;">
+        <span id="tvSyncStatus" class="sync-text">Syncing Channels...</span>
+        <div class="sync-bar-outer">
+          <div id="pbSyncProgress" class="sync-bar-inner" style="width: 0%;"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- NODE INFO & RADAR HEADER CARD (Frame Height 120px) -->
+    <div class="node-info-card">
+      <canvas id="canvasGridBg" class="grid-background-canvas"></canvas>
+
+      <div class="node-info-content">
+        <!-- Left Column: Speed & Trip Stats (Fixed 75px) -->
+        <div class="left-col">
+          <div class="speed-container">
+            <span id="tvSpeedValue" class="speed-val">0</span>
+            <span id="tvSpeedUnit" class="speed-unit">KM/H</span>
+          </div>
+          <div class="trip-stats-dashboard">
+            <span id="tvTripDistDashboard" class="trip-val">0.00 km</span>
+            <span id="tvTripTimeDashboard" class="trip-val">00:00:00</span>
+          </div>
+          <div id="llAutoDiscoverTime" class="auto-discover-bar" style="display: none;">
+            <div class="progress-outer"><div id="pbAutoTime" class="progress-inner"></div></div>
+            <span class="auto-label">TIME (1m)</span>
+          </div>
+        </div>
+
+        <!-- Center Column: Radar, Node ID, Hop Count (STRICT 1:1 CIRCLE) -->
+        <div class="center-col">
+          <div class="radar-container">
+            <span id="tvRepeaterId" class="repeater-id-text" style="display: none;">--</span>
+            <canvas id="canvasRadar" class="radar-canvas" width="90" height="90"></canvas>
+          </div>
+          <span id="tvHopCount" class="hop-count-text">Hops: -</span>
+        </div>
+
+        <!-- Right Column: Compass Arrow & Heading (Fixed 75px) -->
+        <div class="right-col">
+          <div class="compass-container">
+            <canvas id="canvasCompass" class="compass-canvas" width="32" height="32"></canvas>
+            <span id="tvCompassValue" class="compass-val">N 0°</span>
+          </div>
+          <div id="llAutoDiscoverDist" class="auto-discover-bar" style="display: none;">
+            <div class="progress-outer"><div id="pbAutoDist" class="progress-inner"></div></div>
+            <span class="auto-label">DIST (100m)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RSSI & SNR METER CARDS -->
+    <div class="vu-meters-section">
+      <div class="vu-card">
+        <div class="vu-header">
+          <span class="vu-label rssi-label">RSSI: <strong id="tvRssiValue">- dBm</strong></span>
+        </div>
+        <div id="vuRssiSegmented" class="vu-segmented-bar"></div>
+      </div>
+      <div class="vu-card">
+        <div class="vu-header">
+          <span class="vu-label snr-label">SNR: <strong id="tvSnrValue">- dB</strong></span>
+        </div>
+        <div id="vuSnrSegmented" class="vu-segmented-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DYNAMIC MAIN CONTENT AREA -->
+  <main class="main-content">
+
+    <!-- Message Overlay Card (tvMessageOverlay) -->
+    <div id="tvMessageOverlay" class="message-overlay" style="display: none;" onclick="hideMessageOverlay()"></div>
+
+    <!-- 1. MAP VIEW AREA -->
+    <div id="mapContainer" class="content-view map-view-active">
+      <div id="map" onpointerdown="onUserPhysicalMapTouch(event)" ontouchstart="onUserPhysicalMapTouch(event)" onmousedown="onUserPhysicalMapTouch(event)"></div>
+
+      <!-- Map Floating Action Buttons (Positioned Identically to Android Layout) -->
+      <button id="btnToggleRadar" class="map-btn map-btn-top-start" title="Full Radar">📡</button>
+      <button id="btnRecenter" class="map-btn map-btn-top-end" title="Recenter GPS" onclick="onRecenterButtonClicked(event)">⌖</button>
+      <button id="btnToggleLists" class="map-btn map-btn-bottom-start" title="Toggle Lists">▼</button>
+      <button id="btnToggleRepeaters" class="map-btn map-btn-bottom-center" title="Toggle Repeaters" onclick="toggleRepeatersOnMap(event)">🗼</button>
+      <button id="btnToggleHeatmap" class="map-btn map-btn-bottom-end-stacked" title="Toggle Heatmap">🔥</button>
+      <button id="btnMapTheme" class="map-btn map-btn-bottom-end" title="Map Theme">☀</button>
+    </div>
+
+    <!-- FULL RADAR OVERLAY (POSITION FIXED TOPMOST) -->
+    <div id="fullRadarOverlay" class="full-radar-overlay" style="display: none;">
+      <div class="full-radar-header">
+        <button class="btn-radar-back" onclick="toggleFullRadar(false)">← Terug</button>
+        <span class="full-radar-title">📡 Tactical CRT Radar</span>
+        <button class="btn-radar-close-icon" onclick="toggleFullRadar(false)">✖</button>
+      </div>
+      <div class="full-radar-inner">
+        <canvas id="canvasRadarFull" class="radar-canvas-full" width="300" height="300"></canvas>
+      </div>
+      <button class="btn-close-radar" onclick="toggleFullRadar(false)">← Terug naar Kaart</button>
+    </div>
+
+    <!-- 2. GRAPH VIEW AREA -->
+    <div id="graphContainer" class="content-view" style="display: none; flex-direction: column;">
+      <div id="graphLegendBar" class="graph-legend-bar"></div>
+      <div id="graphScrollContainer" class="graph-scroll-container" style="flex: 1;">
+        <canvas id="canvasSignalGraph" class="full-canvas-graph"></canvas>
+      </div>
+    </div>
+
+    <!-- 3. RANGE VIEW AREA -->
+    <div id="rangeContainer" class="content-view" style="display: none;">
+      <ul id="listRangeResults" class="data-list-full"></ul>
+    </div>
+
+    <!-- 4. ANALYSIS VIEW AREA (Maximized Window) -->
+    <div id="analysisContainer" class="content-view" style="display: none;">
+      <div class="max-window-header">
+        <h2>📈 Signal & Trip Analysis</h2>
+      </div>
+
+      <div class="analysis-toggle-group">
+        <button id="btnAnalysisTrip" class="btn-analysis-mode active" onclick="switchAnalysisMode('trip')">THIS TRIP</button>
+        <button id="btnAnalysisGlobal" class="btn-analysis-mode" onclick="switchAnalysisMode('global')">ALL TRIPS</button>
+      </div>
+
+      <div class="analysis-cards-row">
+        <div class="analysis-card">
+          <span id="tvTotalNodes" class="card-val">0</span>
+          <span class="card-lbl">Unique Nodes</span>
+        </div>
+        <div class="analysis-card">
+          <span id="tvTotalPoints" class="card-val">0</span>
+          <span class="card-lbl">Data Points</span>
+        </div>
+        <div class="analysis-card">
+          <span id="tvAnalysisTripDist" class="card-val">0.0 km</span>
+          <span class="card-lbl">Distance</span>
+        </div>
+        <div class="analysis-card">
+          <span id="tvAnalysisTripDuration" class="card-val">00:00:00</span>
+          <span class="card-lbl">Duration</span>
+        </div>
+      </div>
+
+      <div class="analysis-section">
+        <h4 class="section-title">Top Infrastructure (Last Hops)</h4>
+        <div id="llTopRepeaters" class="analysis-list"></div>
+      </div>
+
+      <div class="analysis-section">
+        <h4 class="section-title">Source Range Analysis (Max Distance)</h4>
+        <div id="llSourceStats" class="analysis-list"></div>
+      </div>
+
+      <div class="analysis-section">
+        <h4 class="section-title">Packet Types Breakdown</h4>
+        <div id="llPacketTypes" class="analysis-list"></div>
+      </div>
+
+      <div class="analysis-section">
+        <h4 class="section-title">Signal vs Distance</h4>
+        <canvas id="canvasSignalDistanceGraph" class="dist-graph-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- 5. CHAT / MESSENGER VIEW AREA (MAXIMIZED MODERN TACTICAL LAYOUT) -->
+    <div id="chatContainer" class="content-view" style="display: none;">
+
+      <!-- WINDOW TITLE HEADER -->
+      <div class="max-window-header">
+        <h2>💬 Meshcore Messenger</h2>
+      </div>
+
+      <!-- MESSENGER HEADER BAR: Single Clickable Channel Title Banner (Exact MainActivity.kt UI) -->
+      <div class="messenger-header">
+        <button id="btnMessengerTitle" class="btn-channel-header" onclick="openChannelPickerModal()" title="Tap to Select Channel or Direct Message">
+          <span id="txtMessengerHeaderTitle">📡 CH0: Public (Global)</span>
+          <span class="dropdown-caret">▼</span>
+        </button>
+
+        <button id="btnMessengerSettings" class="btn-icon-sub" onclick="openMessengerSettingsModal()" title="Messenger Settings">⚙️</button>
+      </div>
+
+      <!-- QUICK REPLIES CHIPS BAR -->
+      <div class="quick-chips-bar">
+        <button class="btn-chip-all" onclick="openQuickRepliesModal()" title="All Quick Replies">☰</button>
+        <button class="chip-btn" onclick="appendLocationToInput()">📍 Location</button>
+        <button class="chip-btn" onclick="appendQuickReply('🚗 Wardrive active')">🚗 Active</button>
+        <button class="chip-btn" onclick="appendQuickReply('📡 Test message')">📡 Test</button>
+        <button class="chip-btn" onclick="appendQuickReply('🏁 End route')">🏁 End</button>
+      </div>
+
+      <!-- CHAT MESSAGES HISTORY BOX -->
+      <div id="messengerChat" class="chat-box"></div>
+
+      <!-- SLEEK INLINE CHAT INPUT BAR -->
+      <div class="chat-input-bar">
+        <input type="text" id="inputMessage" placeholder="Type your message..." aria-label="Type your message" />
+        <button id="btnVoiceDictation" class="btn-chat-mic" title="Voice Dictation" onclick="toggleVoiceInput()">🎙️</button>
+        <button id="btnSendMessage" class="btn-send-circle" onclick="sendMessageFromInput()" title="Send Message">🚀</button>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- COLLAPSIBLE BOTTOM LISTS CONTAINER (EXACT ANDROID LIST HEADERS) -->
+  <div id="llListsContainer" class="lists-container">
+    <div class="list-column list-column-left">
+      <div class="list-header-row">
+        <span id="tvBestSeenHeader" class="list-header-title" onclick="toggleBestSeenMode()">Best Seen (SNR): 0</span>
+      </div>
+      <ul id="listBestSeen" class="data-list"></ul>
+    </div>
+
+    <div class="list-column list-column-right">
+      <div class="list-header-row">
+        <span id="tvLogHeader" class="list-header-title" onclick="toggleNodeListFilterMode()">Contacts (2-3B): 0</span>
+      </div>
+      <ul id="listLocatedNodes" class="data-list"></ul>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION BAR (100% OPTICALLY BALANCED ANDROID MATERIAL VECTORS) -->
+  <nav class="bottom-nav">
+    <button class="nav-item" data-tab="graph" onclick="switchNavTab('graph')">
+      <svg class="nav-svg svg-graph" viewBox="0 0 24 24"><path fill="currentColor" d="M3.5,18.5L9.5,12.5L13.5,16.5L22,6.92L20.59,5.5L13.5,13.5L9.5,9.5L2,17L3.5,18.5Z"/></svg>
+      <span class="nav-label">Graph</span>
+    </button>
+    <button class="nav-item active" data-tab="map" onclick="switchNavTab('map')">
+      <svg class="nav-svg svg-map" viewBox="0 0 24 24"><path fill="currentColor" d="M20.5,3l-0.16,0.03L15,5.1L9,3L3.36,4.9C3.15,4.97 3,5.15 3,5.38V20.5c0,0.34 0.31,0.58 0.64,0.48L9,18.9l6,2.1l5.64,-1.9c0.21,-0.07 0.36,-0.25 0.36,-0.48V3.5c0,-0.31 -0.58 -0.5,-0.5zM15,18.85l-6,-2.11V5.15l6,2.11v11.59z"/></svg>
+      <span class="nav-label">Map</span>
+    </button>
+    <button class="nav-item" data-tab="range" onclick="switchNavTab('range')">
+      <svg class="nav-svg svg-range" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm0,18c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8zm-1,-13h2v2h-2zm0,4h2v6h-2z"/></svg>
+      <span class="nav-label">Range</span>
+    </button>
+    <button class="nav-item" data-tab="analysis" onclick="switchNavTab('analysis')">
+      <svg class="nav-svg svg-analysis" viewBox="0 0 24 24"><path fill="currentColor" d="M19,3H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2zm0,16H5V5h14v14zM7,10h2v7H7zm4,-3h2v10h-2zm4,6h2v4h-2z"/></svg>
+      <span class="nav-label">Analysis</span>
+    </button>
+    <button class="nav-item" data-tab="chat" onclick="switchNavTab('chat')">
+      <svg class="nav-svg svg-chat" viewBox="0 0 24 24"><path fill="currentColor" d="M20,2H4c-1.1,0 -1.99,0.9 -1.99,2L2,22l4,-4h14c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2zM6,9h12v2H6V9zm8,5H6v-2h8v2zm4,-6H6V6h12v2z"/></svg>
+      <span class="nav-label">Chat</span>
+      <span id="badgeMessengerUnread" class="unread-badge" style="display: none;">0</span>
+    </button>
+  </nav>
+
+  <!-- MODAL: MESSENGER CHANNEL PICKER (📡 Select Channel) -->
+  <div id="modalChannelPicker" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📡 Select Active Channel</h2>
+        <span class="close-modal" onclick="closeChannelPickerModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div id="llChannelsListModal" class="channel-picker-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeChannelPickerModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: MESSENGER SUB-MENU SETTINGS (⚙️ - Exact MainActivity.kt showMessengerSubMenu) -->
+  <div id="modalMessengerSettings" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>💬 Messenger Hub</h2>
+        <span class="close-modal" onclick="closeMessengerSettingsModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <label class="cb-label-block" style="margin-bottom:12px; padding:10px 14px; background:#222; border-radius:8px; border:1px solid var(--accent-cyan); display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+          <span style="font-weight:bold; font-size:0.92rem; color:#FFFFFF;">🔊 Message Received Sound</span>
+          <input type="checkbox" id="chkMessengerSound" onchange="toggleMessengerSound(this.checked)" style="transform:scale(1.3); cursor:pointer;" />
+        </label>
+        <label class="cb-label-block" style="margin-bottom:12px; padding:10px 14px; background:#222; border-radius:8px; border:1px solid var(--accent-cyan); display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+          <span style="font-weight:bold; font-size:0.92rem; color:#FFFFFF;">🏎️ Large UI / Driving Mode</span>
+          <input type="checkbox" id="chkDrivingModeManual" onchange="toggleManualDrivingMode(this.checked)" style="transform:scale(1.3); cursor:pointer;" />
+        </label>
+        <button class="btn btn-secondary" style="width:100%; margin-bottom:10px; text-align:left; font-weight:bold;" onclick="closeMessengerSettingsModal(); openChannelVisibilityModal();">⚙️ Dashboard Visibility / Channels</button>
+        <button class="btn btn-secondary" style="width:100%; margin-bottom:10px; text-align:left; font-weight:bold;" onclick="closeMessengerSettingsModal(); openAutoReplyModal();">🤖 Auto-Reply Settings</button>
+        <button class="btn btn-secondary" style="width:100%; margin-bottom:10px; text-align:left; font-weight:bold;" onclick="closeMessengerSettingsModal(); openQuickRepliesModal();">✏️ Edit Quick Replies</button>
+        <button class="btn btn-primary" style="width:100%; margin-bottom:10px; text-align:left; font-weight:bold;" onclick="sendLocationBeacon(); closeMessengerSettingsModal();">📍 Share Location Beacon</button>
+        <button class="btn btn-danger" style="width:100%; margin-bottom:10px; text-align:left; font-weight:bold;" onclick="confirmClearChannelMessages()">🗑️ Clear All Channel Messages</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeMessengerSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CHANNEL VISIBILITY -->
+  <div id="modalChannelVisibility" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ Dashboard Visibility & Channels</h2>
+        <span class="close-modal" onclick="closeChannelVisibilityModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <p class="settings-desc">Toggle channel visibility in picker.</p>
+        <div id="llChannelVisibilityList" style="margin-top:10px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeChannelVisibilityModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveChannelVisibilitySettings()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AUTO-REPLY BOT SETTINGS -->
+  <div id="modalAutoReply" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🤖 Auto-Reply Bot Settings</h2>
+        <span class="close-modal" onclick="closeAutoReplyModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <label class="cb-label-block"><input type="checkbox" id="chkAutoReply" /> Enable Auto-Reply Bot</label>
+        <div class="form-group" style="margin-top:10px;">
+          <label class="form-lbl" for="txtAutoReplyMessage">Auto-Reply Response Message:</label>
+          <input type="text" id="txtAutoReplyMessage" value="🚗 Meshcore Wardrive Active - Auto-Reply" class="input-text" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeAutoReplyModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT QUICK REPLIES -->
+  <div id="modalQuickReplies" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>✏️ Edit Quick Replies</h2>
+        <span class="close-modal" onclick="closeQuickRepliesModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <label class="form-lbl" for="txtQuickReplies">Quick Replies List (One per line):</label>
+        <textarea id="txtQuickReplies" class="input-text" style="height:120px; font-family:monospace;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeQuickRepliesModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveQuickReplies()">Save Replies</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT CHANNEL SCOPE -->
+  <div id="modalEditScope" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🌐 Edit Region Scope</h2>
+        <span class="close-modal" onclick="closeEditScopeModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-lbl" for="txtScopeName">Enter Region Scope Name (e.g. #be, #nl, or '*' for unscoped/Global):</label>
+          <input type="text" id="txtScopeName" class="input-text" placeholder="Region Name (e.g. #be of leeg voor Global)" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditScopeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveChannelScope()">Save Scope</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SYSTEM HUB -->
+  <div id="modalSettings" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>≡ System Hub & Settings</h2>
+        <span class="close-modal" onclick="closeSystemHub()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3>📡 Bluetooth Connection Manager</h3>
+          <p class="settings-desc">Scan and connect to your MeshCore / Meshtastic / Heltec BLE companion node.</p>
+          <div id="bleConnectionStatusCard" class="ble-status-card" style="margin-bottom:8px; padding:8px; background:#121212; border-radius:6px; border:1px solid var(--border);">
+            <div id="bleStatusTextModal" style="font-weight:bold; color:var(--danger); font-size:0.85rem;">🔴 Disconnected</div>
+            <div id="bleDetailsTextModal" style="font-size:0.75rem; color:#AAA; margin-top:2px;">Click 'Scan & Connect BLE' below to pair.</div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button id="btnConnectBle" class="btn btn-connect" style="flex:1;">📶 Scan & Connect BLE</button>
+            <button id="btnDisconnectBle" class="btn btn-danger" style="display:none;" onclick="bleManager.disconnect()">🔌 Disconnect</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>🗺️ Map Source</h3>
+          <select id="selMapSource" class="select-text" onchange="changeMapSource()" aria-label="Map Tile Source">
+            <option value="ofm-liberty" selected>🚀 Vector Map - OpenFreeMap Light (Vibrant HD)</option>
+            <option value="ofm-dark">🌌 Vector Map - OpenFreeMap Dark (Tactical HD)</option>
+            <option value="esri-light">🏙️ Raster Map - Esri World Street (Light)</option>
+            <option value="esri-dark">🖤 Raster Map - Esri Dark Gray (Dark)</option>
+          </select>
+        </div>
+
+        <div class="settings-section">
+          <h3>📂 Contacts & Data Management</h3>
+          <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="selectContactsJsonFile()">📥 Import Contacts JSON</button>
+          <button class="btn btn-danger" style="width:100%;" onclick="confirmClearContacts()">🗑️ Clear Contacts</button>
+          <input type="file" id="fileContactsJson" accept=".json" style="display:none;" />
+        </div>
+
+        <div class="settings-section">
+          <h3>📲 Offline App Installation (PWA)</h3>
+          <button class="btn btn-primary" style="width:100%;" onclick="installPwaApp()">📲 Install App to Home Screen</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>📖 Documentation, Legal & Credits</h3>
+          <button class="btn btn-primary" style="width:100%; margin-bottom:8px; font-weight:bold;" onclick="openHelpInfoModal()">📖 User Manual & Legal Notice</button>
+
+          <div style="margin-top:10px; padding:10px; background:#121212; border:1px solid #FFEB3B; border-radius:6px; text-align:center;">
+            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.10</div>
+            <div style="font-weight:bold; color:#FFFFFF; font-size:0.8rem; margin-top:2px;">Designed by Papa Delta & Gemini</div>
+            <div style="font-size:0.75rem; color:#AAA; margin-top:2px;">Contact: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ENGLISH USER MANUAL, LEGAL NOTICE & CREDITS -->
+  <div id="modalHelpInfo" class="modal">
+    <div class="modal-content" style="max-width:650px;">
+      <div class="modal-header">
+        <h2>📖 Meshcore Wardrive - User Manual & Info</h2>
+        <span class="close-modal" onclick="closeHelpInfoModal()">&times;</span>
+      </div>
+      <div class="modal-body" style="font-size:0.85rem; line-height:1.5; color:#E0E0E0;">
+
+        <!-- CREDITS BANNER -->
+        <div style="padding:12px; background:#121212; border:1px solid #FFEB3B; border-radius:8px; text-align:center; margin-bottom:16px;">
+          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.10</h3>
+          <div style="font-weight:bold; color:#FFFFFF; font-size:0.9rem;">Designed by Papa Delta & Gemini</div>
+          <div style="font-size:0.8rem; color:#AAA; margin-top:4px;">Contact & Support: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
+        </div>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">1. Overview & Purpose</h3>
+        <p>The Meshcore Signaal Meter & Wardrive app is designed for monitoring, logging, mapping, and communicating over <strong>Meshcore LoRa mesh networks</strong> via a Bluetooth Low Energy (BLE) companion repeater node. It provides real-time signal metrics, GPS wardriving logs, tactical radar, and instant channel/direct messaging.</p>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">2. Getting Started</h3>
+        <ul style="padding-left:20px; margin-top:4px;">
+          <li><strong>Bluetooth Pairing:</strong> Open System Hub (≡) and tap "📶 Scan & Connect BLE" to select your Meshcore companion node.</li>
+          <li><strong>Handshake & Sync:</strong> Upon connection, the app automatically executes the official handshake (Query ➔ App Start ➔ Channel Sync ➔ Contacts).</li>
+          <li><strong>Start Trip:</strong> Tap "START" on the dashboard to record unfiltered GPS signal logs.</li>
+        </ul>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">3. Dashboard & Radio Metrics</h3>
+        <ul style="padding-left:20px; margin-top:4px;">
+          <li><strong>Speed & Trip Stats:</strong> Live GPS speed (KM/H), total trip distance (km), and duration.</li>
+          <li><strong>VU Meters:</strong> Real-time RSSI (dBm) and SNR (dB) signal meters.</li>
+          <li><strong>Tactical Radar & Compass:</strong> 1:1 compass arrow indicating travel direction and interactive radar blips showing newly heard nodes. Tap the radar to open full-screen Tactical CRT Radar view.</li>
+        </ul>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">4. Filter Hub & Target Focus</h3>
+        <p>Tap "🔍 FILTERS" to filter displayed data on map and lists (all raw signals are always 100% saved in CSV logs):</p>
+        <ul style="padding-left:20px; margin-top:4px;">
+          <li><strong>Target Focus IDs:</strong> Focus exclusively on specific node IDs (e.g. <code>692F</code>, <code>2F3A</code>).</li>
+          <li><strong>Traffic Types:</strong> Filter by Adverts (0x04), Direct Messages (0x02), Channels (0x05), Discover (0x0E), or RF Logs (0x88).</li>
+          <li><strong>Zero Hop Only:</strong> Show only direct 0-hop signals from the transmitter.</li>
+        </ul>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">5. Maps & Repeater Positioning</h3>
+        <ul style="padding-left:20px; margin-top:4px;">
+          <li><strong>Map Sources:</strong> Choose between OpenFreeMap Vector maps (Light/Dark HD) or Esri Gray raster maps.</li>
+          <li><strong>Heatmap & Repeaters:</strong> Toggle coverage heatmap (🔥) and cyan repeater icons (🗼).</li>
+          <li><strong>Trilateration:</strong> In Filter Hub, enter a target ID and tap "🎯 ESTIMATE REPEATER POSITION" to compute weighted RSSI repeater coordinates from historical trip data.</li>
+        </ul>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">6. Signal Deep Dive & Trajectories</h3>
+        <p>Long-press any signal log or contact to open <strong>Signal Deep Dive</strong>. Tap "Full Repeater Path" to draw the complete hop-by-hop route on the map with arrows and numbered hops.</p>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">7. Messenger & Driving Mode (> 5 km/h)</h3>
+        <ul style="padding-left:20px; margin-top:4px;">
+          <li><strong>Channels & DMs:</strong> Switch between public/regional channels or private direct conversations.</li>
+          <li><strong>Hands-Free Voice Dictation:</strong> Tap 🎙️ to dictate messages with an automated 5-second send timer.</li>
+          <li><strong>Driving Mode:</strong> When speed exceeds 5 km/h (or toggled manually), the messenger automatically expands into large, high-accessibility typography (`2.85rem` message text) for safe in-car viewing.</li>
+          <li><strong>Delivery Status:</strong> Single checkmark (`✔`) indicates sent to radio; double green checkmark (`✔✔`) confirms network ACK delivery.</li>
+        </ul>
+
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">8. Data Export & Trips</h3>
+        <p>Tap "TRIPS" to export recorded sessions as <strong>CSV</strong> (for Excel/Python analysis) or <strong>KML</strong> (for Google Earth visual tracking).</p>
+
+        <h3 style="color:#FF9800; border-bottom:1px solid #333; padding-bottom:4px; margin-top:16px;">⚖️ Legal, Licensing & Privacy Notice</h3>
+        <div style="background:#1A1A1A; padding:10px; border-radius:6px; margin-top:6px;">
+          <p><strong>100% Privacy by Design:</strong> This application operates 100% locally on your device. Zero personal data, location telemetry, or logs are transmitted to external servers or third parties.</p>
+          <p style="margin-top:6px;"><strong>Free & Open Distribution:</strong> This software is provided free of charge for community use under open source principles. Built using Leaflet, MapLibre GL, FontAwesome, OSMDroid, and Mapsforge libraries.</p>
+          <p style="margin-top:6px;"><strong>Disclaimer of Warranty:</strong> THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY.</p>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeHelpInfoModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: FILTER HUB -->
+  <div id="modalFilters" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🔍 Filter & Target Hub</h2>
+        <span class="close-modal" onclick="closeFilterHub()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-lbl" for="filterTargetIds">🎯 Target Focus IDs (Comma Separated):</label>
+          <input type="text" id="filterTargetIds" placeholder="e.g. 692F, 2F3A" class="input-text" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl" for="filterIdLength">🏷️ Sender ID Length:</label>
+          <select id="filterIdLength" class="select-text">
+            <option value="0">All ID Lengths</option>
+            <option value="1">1 Byte (2 chars)</option>
+            <option value="2">2 Bytes (4 chars)</option>
+            <option value="3">3 Bytes (6 chars)</option>
+            <option value="6">Pubkey (12+ chars)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl" for="filterTrafficType">📡 Traffic / Packet Types:</label>
+          <select id="filterTrafficType" class="select-text">
+            <option value="0">All Traffic Types</option>
+            <option value="4">Advert (0x04)</option>
+            <option value="1">Response (0x01)</option>
+            <option value="2">Direct Msg (0x02)</option>
+            <option value="5">Channel Msg (0x05)</option>
+            <option value="14">Discover (0x0E)</option>
+            <option value="136">RF Log (0x88)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="cb-label-block"><input type="checkbox" id="chkZeroHop" /> Zero Hop Only (Direct Route)</label>
+        </div>
+
+        <div class="form-group">
+          <button class="btn btn-primary" style="width:100%;" onclick="runRepeaterTrilateration()">🎯 ESTIMATE REPEATER POSITION</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="resetFilters()">RESET ALL</button>
+        <button class="btn btn-primary" onclick="applyFilters()">APPLY FILTERS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: TRIPS MANAGER -->
+  <div id="modalTrips" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📁 Trips & Logs Manager</h2>
+        <span class="close-modal" onclick="closeTripsManager()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <button class="btn btn-primary" onclick="triggerImportTripFile()" style="width:100%; margin-bottom:12px; font-weight:bold; background:#1E2638; color:#00FFC8; border:1px solid #00FFC8;">📂 Import CSV / KML File from Downloads</button>
+        <input type="file" id="inputImportTripFile" accept=".csv,.kml,.json" style="display:none;" onchange="handleImportTripFile(event)" />
+
+        <div class="form-group-row" style="margin-bottom:12px;">
+          <button class="btn btn-primary" onclick="exportSessionJson()">📥 Export JSON</button>
+          <button class="btn btn-primary" onclick="exportCsv()">📄 Export CSV</button>
+          <button class="btn btn-primary" onclick="exportKml()">🌍 Export KML</button>
+        </div>
+        <ul id="listSavedTrips" class="data-list-full"></ul>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="clearCurrentSession()">Clear Session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SIGNAL DEEP DIVE -->
+  <div id="modalDetails" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📡 Signal Deep Dive</h2>
+        <span class="close-modal" onclick="closeSignalDetails()">&times;</span>
+      </div>
+      <div id="detailsBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- MapLibre GL JS (Pure Open-Source GPU Map Engine) -->
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <!-- JS Modules (Synchronous Parse-Time Anti-Cache Loader) -->
+  <script>
+    const _bVersion = Date.now();
+    document.write('<script src="./js/scope.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/protocol.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/bluetooth.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/radar.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/graphs.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/trilateration.js?v=' + _bVersion + '"><\/script>');
+    document.write('<script src="./js/app.js?v=' + _bVersion + '"><\/script>');
+  </script>
+</body>
+</html>
