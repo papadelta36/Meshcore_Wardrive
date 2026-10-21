@@ -93,42 +93,37 @@ const ProtocolDecoder = {
     return clean.trim();
   },
 
+  decodeTextBytes(textBytes) {
+    if (!textBytes || textBytes.length === 0) return "";
+    try {
+      const bytes = new Uint8Array(textBytes);
+      // 1. Convert to UTF-8 and split at the first null byte (\0)
+      const rawUtf8 = new TextDecoder("utf-8").decode(bytes).split('\0')[0].trim();
+      if (!rawUtf8) return "";
+
+      // 2. Check if SMAZ compressed (starts with "s:")
+      if (rawUtf8.startsWith("s:")) {
+        try {
+          const base64 = rawUtf8.substring(2);
+          const binary = atob(base64);
+          const decBytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) decBytes[i] = binary.charCodeAt(i);
+          const dec = this.smazDecode(decBytes);
+          if (dec && dec.length > 0) return dec.trim();
+        } catch (e) {}
+      }
+
+      return rawUtf8;
+    } catch (e) {
+      return "";
+    }
+  },
+
   tryDecodePrefixed(textOrBytes) {
     if (!textOrBytes) return "";
     if (textOrBytes instanceof Uint8Array || Array.isArray(textOrBytes) || textOrBytes.buffer) {
-      try {
-        const cleanBytes = this.stripPKCS7(new Uint8Array(textOrBytes));
-
-        // 1. Try UTF-8 decoding
-        const rawUtf8 = new TextDecoder("utf-8").decode(cleanBytes).split('\0')[0];
-        const cleanUtf8 = this.cleanPrintableString(rawUtf8);
-        if (cleanUtf8 && cleanUtf8.length >= 1 && this.isPrintable(cleanUtf8)) {
-          // If string explicitly starts with "s:", decode Smaz base64
-          if (cleanUtf8.startsWith("s:")) {
-            try {
-              const base64 = cleanUtf8.substring(2);
-              const binary = atob(base64);
-              const bytes = new Uint8Array(binary.length);
-              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-              const dec = this.cleanPrintableString(this.smazDecode(bytes));
-              if (dec && this.isPrintable(dec)) return dec;
-            } catch (e) {}
-          }
-          return cleanUtf8;
-        }
-
-        // 2. Try SMAZ decompressor fallback for compressed binary bytes
-        const smazDec = this.cleanPrintableString(this.smazDecode(cleanBytes));
-        if (smazDec && smazDec.length >= 2 && this.isPrintable(smazDec)) {
-          return smazDec;
-        }
-
-        return cleanUtf8 || "";
-      } catch (e) {
-        return "";
-      }
+      return this.decodeTextBytes(textOrBytes);
     }
-
     if (typeof textOrBytes !== 'string') return String(textOrBytes);
     if (!textOrBytes.startsWith("s:")) return this.cleanPrintableString(textOrBytes);
     try {
@@ -882,7 +877,7 @@ const ProtocolDecoder = {
       // TxtMsg (TS 4 bytes + TxtType 1 byte + Msg Text)
       if (data.length >= 5) {
         const textBytes = data.slice(5);
-        const textDec = this.tryDecodePrefixed(textBytes);
+        const textDec = this.decodeTextBytes(textBytes);
         return { type: "TxtMsg", rawPayload: data, text: textDec };
       }
     }

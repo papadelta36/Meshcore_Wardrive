@@ -133,7 +133,7 @@
             <span id="tvRepeaterId" class="repeater-id-text" style="display: none;">--</span>
             <canvas id="canvasRadar" class="radar-canvas" width="90" height="90"></canvas>
           </div>
-          <span id="tvHopCount" class="hop-count-text">Hops: -</span>
+          <span id="tvHopCount" class="hop-count-text" style="display: none;">Hops: -</span>
         </div>
 
         <!-- Right Column: Compass Arrow & Heading (Fixed 75px) -->
@@ -547,6 +547,12 @@
         </div>
 
         <div class="settings-section">
+          <h3>📋 System Logs</h3>
+          <p class="settings-desc">View, filter, and save real-time system and RF log communications.</p>
+          <button class="btn btn-primary" style="width:100%;" onclick="openSystemLogsModal()">📋 View System Logs</button>
+        </div>
+
+        <div class="settings-section">
           <h3>📂 Contacts & Data Management</h3>
           <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="selectContactsJsonFile()">📥 Import Contacts JSON</button>
           <button class="btn btn-danger" style="width:100%;" onclick="confirmClearContacts()">🗑️ Clear Contacts</button>
@@ -571,6 +577,43 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SYSTEM LOGS (1:1 Match with MainActivity.kt showLogDialog) -->
+  <div id="modalSystemLogs" class="modal">
+    <div class="modal-content" style="max-width:700px; max-height:90vh; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <h2>📋 System Logs</h2>
+        <span class="close-modal" onclick="closeSystemLogsModal()">&times;</span>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:10px; flex:1; overflow:hidden;">
+        <!-- DUAL SEARCH FILTERS -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <input type="text" id="etLogSearch1" class="input-text" placeholder="Filter 1 (e.g. Time or Tag)" aria-label="Filter 1 (e.g. Time or Tag)" oninput="updateSystemLogsView()" />
+          <input type="text" id="etLogSearch2" class="input-text" placeholder="Filter 2 (Refine search)" aria-label="Filter 2 (Refine search)" oninput="updateSystemLogsView()" />
+        </div>
+
+        <!-- LOGGING TOGGLE SWITCH -->
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#121212; padding:10px; border-radius:6px; border:1px solid var(--border);">
+          <span id="lblLogSwitch" style="font-weight:bold; color:var(--primary); font-size:0.9rem;">System Logging: ON</span>
+          <label class="switch">
+            <input type="checkbox" id="swSystemLogging" checked aria-label="System Logging Toggle" onchange="toggleSystemLogging(this.checked)" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- LOG DISPLAY CONSOLE -->
+        <div style="flex:1; background:#121212; border:1px solid var(--border); border-radius:6px; padding:10px; overflow-y:auto; min-height:220px;" id="scrollerSystemLogs">
+          <pre id="txtSystemLogs" style="margin:0; font-family:monospace; font-size:0.78rem; color:#CCC; white-space:pre-wrap; word-break:break-all;">No logs yet...</pre>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display:flex; gap:10px;">
+        <button class="btn btn-primary" style="flex:1;" onclick="saveSystemLogsToFile()">💾 Save</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="clearSystemLogs()">🗑️ Clear</button>
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeSystemLogsModal()">Close</button>
       </div>
     </div>
   </div>

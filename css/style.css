@@ -1962,12 +1962,13 @@ body {
   position: absolute;
   top: 0;
   right: 8px;
-  background-color: var(--danger);
-  color: #FFF;
-  font-size: 0.6rem;
+  background-color: #B71C1C;
+  color: #00FFC8; /* Bright Green for unread count text */
+  font-size: 0.7rem;
   font-weight: bold;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 10px;
+  border: 1px solid #00FFC8;
 }
 
 /* CHANNEL PICKER ITEMS */
@@ -1990,6 +1991,37 @@ body {
   border-color: var(--primary-bright);
   background-color: rgba(76, 175, 80, 0.2);
 }
+
+.channel-name {
+  font-weight: bold;
+  font-size: 0.95rem;
+  color: #FFEB3B; /* Bright Yellow for Channel Name focus */
+}
+
+.channel-scope {
+  font-size: 0.78rem;
+  color: #AAA;
+  margin-top: 2px;
+  display: block;
+}
+
+.btn-delete-subtle {
+  background: rgba(255, 152, 0, 0.15);
+  color: #FFA726;
+  border: 1px solid rgba(255, 152, 0, 0.5);
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.btn-delete-subtle:hover {
+  background: rgba(255, 152, 0, 0.3);
+  color: #FFB74D;
+}
+
 
 /* MODALS */
 .modal {
@@ -2101,3 +2133,45 @@ body {
 .btn-primary { background-color: var(--primary); color: #000; font-weight: bold; border-radius: 6px; border: none; padding: 8px 12px; cursor: pointer; }
 .btn-secondary { background-color: var(--bg-input); color: #FFF; font-weight: bold; border-radius: 6px; border: none; padding: 8px 12px; cursor: pointer; }
 .btn-danger { background-color: var(--danger); color: #FFF; font-weight: bold; border-radius: 6px; border: none; padding: 8px 12px; cursor: pointer; }
+
+/* SWITCH TOGGLE CONTROL (1:1 Match with MaterialSwitch) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #555;
+  transition: .2s;
+  border-radius: 24px;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+}
+input:checked + .slider {
+  background-color: var(--primary);
+}
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+

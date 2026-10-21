@@ -493,6 +493,10 @@ class MeshcoreBleManager {
 
     const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
 
+    if (typeof LogManager !== 'undefined') {
+      LogManager.log("WardriveService", `Writing command ${hex}`);
+    }
+
     // Add 50ms pacing delay between consecutive BLE command frames
     if (this.lastWriteTime) {
       const elapsed = Date.now() - this.lastWriteTime;
@@ -538,6 +542,11 @@ class MeshcoreBleManager {
     const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 
     if (bytes.length === 0) return;
+
+    if (typeof LogManager !== 'undefined') {
+      const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('');
+      LogManager.log("WardriveService", `RAW INCOMING (size=${bytes.length}): ${hex}`);
+    }
 
     if (this.onSignalReceived) {
       this.onSignalReceived(bytes);

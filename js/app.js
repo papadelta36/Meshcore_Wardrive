@@ -1,3 +1,165 @@
+// --- Global LogManager (1:1 Match with Kotlin LogManager.kt & MainActivity.kt showLogDialog) ---
+window.LogManager = {
+  logQueue: [],
+  maxEntries: 2000,
+  isLoggingEnabled: localStorage.getItem('system_logging_enabled') !== 'false',
+
+  setLoggingEnabled(enabled) {
+    this.isLoggingEnabled = !!enabled;
+    localStorage.setItem('system_logging_enabled', this.isLoggingEnabled ? 'true' : 'false');
+  },
+
+  isEnabled() {
+    return this.isLoggingEnabled;
+  },
+
+  log(tag, message) {
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0');
+    const entry = `[${timeStr}] ${tag}: ${message}`;
+
+    console.log(entry);
+
+    if (!this.isLoggingEnabled) return;
+
+    this.logQueue.push(entry);
+    if (this.logQueue.length > this.maxEntries) {
+      this.logQueue.shift();
+    }
+
+    if (typeof updateSystemLogsView === 'function') {
+      updateSystemLogsView();
+    }
+  },
+
+  getLogs() {
+    return this.logQueue;
+  },
+
+  clearLogs() {
+    this.logQueue = [];
+  }
+};
+
+window.openSystemLogsModal = () => {
+  const modal = document.getElementById('modalSystemLogs');
+  if (modal) {
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+  }
+  const sw = document.getElementById('swSystemLogging');
+  const lbl = document.getElementById('lblLogSwitch');
+  if (sw && lbl) {
+    const isEn = LogManager.isEnabled();
+    sw.checked = isEn;
+    lbl.textContent = isEn ? "System Logging: ON" : "System Logging: OFF";
+    lbl.style.color = isEn ? "var(--primary)" : "#888888";
+  }
+  updateSystemLogsView();
+  const scroller = document.getElementById('scrollerSystemLogs');
+  if (scroller) {
+    scroller.scrollTop = scroller.scrollHeight;
+  }
+};
+
+window.closeSystemLogsModal = () => {
+  const modal = document.getElementById('modalSystemLogs');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+};
+
+window.toggleSystemLogging = (enabled) => {
+  LogManager.setLoggingEnabled(enabled);
+  const lbl = document.getElementById('lblLogSwitch');
+  if (lbl) {
+    lbl.textContent = enabled ? "System Logging: ON" : "System Logging: OFF";
+    lbl.style.color = enabled ? "var(--primary)" : "#888888";
+  }
+  LogManager.log("MainActivity", `System Logging toggled: ${enabled ? "ON" : "OFF"}`);
+};
+
+window.updateSystemLogsView = () => {
+  const modal = document.getElementById('modalSystemLogs');
+  if (!modal || (modal.style.display === 'none' && !modal.classList.contains('active'))) return;
+
+  const txtLogs = document.getElementById('txtSystemLogs');
+  if (!txtLogs) return;
+
+  const query1 = (document.getElementById('etLogSearch1')?.value || '').trim();
+  const query2 = (document.getElementById('etLogSearch2')?.value || '').trim();
+
+  const allLogs = LogManager.getLogs();
+
+  if (allLogs.length === 0) {
+    txtLogs.textContent = "No logs yet...";
+    return;
+  }
+
+  let lines = allLogs;
+  if (query1 || query2) {
+    lines = allLogs.filter(line => {
+      const match1 = !query1 || line.toLowerCase().includes(query1.toLowerCase());
+      const match2 = !query2 || line.toLowerCase().includes(query2.toLowerCase());
+      return match1 && match2;
+    });
+  }
+
+  if (lines.length === 0) {
+    txtLogs.textContent = "No matches found.";
+    return;
+  }
+
+  const rawText = lines.join('\n');
+
+  if (!query1 && !query2) {
+    txtLogs.textContent = rawText;
+  } else {
+    let escaped = rawText
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    function highlightQuery(htmlText, query) {
+      if (!query) return htmlText;
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escapedQuery})`, 'gi');
+      return htmlText.replace(regex, '<mark style="background:#FF5252; color:#FFF; padding:0 2px; border-radius:2px;">$1</mark>');
+    }
+
+    let highlightedHtml = highlightQuery(escaped, query1);
+    highlightedHtml = highlightQuery(highlightedHtml, query2);
+
+    txtLogs.innerHTML = highlightedHtml;
+  }
+};
+
+window.saveSystemLogsToFile = () => {
+  const txtLogs = document.getElementById('txtSystemLogs');
+  const logsText = txtLogs ? txtLogs.innerText : LogManager.getLogs().join('\n');
+  const nowStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const fileName = `system_log_${nowStr}.txt`;
+
+  if (typeof downloadFile === 'function') {
+    downloadFile(logsText, fileName, 'text/plain');
+  } else {
+    const blob = new Blob([logsText], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    a.click();
+  }
+  LogManager.log("MainActivity", `Logs saved to ${fileName}`);
+};
+
+window.clearSystemLogs = () => {
+  LogManager.clearLogs();
+  const txtLogs = document.getElementById('txtSystemLogs');
+  if (txtLogs) {
+    txtLogs.textContent = "Logs cleared.";
+  }
+};
+
 // --- Global Repositories & State ---
 // Official MeshCore Default Public Channel PSK (Hex: 8b3387e9c5cdea6ac9e5edbaa115cd72)
 const DEFAULT_PUBLIC_PSK = new Uint8Array([0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a, 0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72]);
@@ -10,6 +172,26 @@ let syncedChannels = [
 ];
 window.syncedChannels = syncedChannels;
 window.clearSyncedChannels = () => { syncedChannels.length = 0; };
+
+function getEffectivePsk(ch) {
+  if (!ch || !ch.psk) return DEFAULT_PUBLIC_PSK;
+  let psk = ch.psk;
+  if (typeof psk === 'string') {
+    if (typeof ProtocolDecoder !== 'undefined' && ProtocolDecoder.hexToBytes) {
+      psk = ProtocolDecoder.hexToBytes(psk);
+    } else {
+      return DEFAULT_PUBLIC_PSK;
+    }
+  }
+  if (psk && (psk.length > 0 || psk.byteLength > 0)) {
+    const arr = Array.from(psk);
+    if (arr.some(b => b !== 0)) {
+      return psk instanceof Uint8Array ? psk : new Uint8Array(arr);
+    }
+  }
+  return DEFAULT_PUBLIC_PSK;
+}
+window.getEffectivePsk = getEffectivePsk;
 
 let activeChannelIndex = 0;
 let activeDirectNodeId = null;
@@ -570,19 +752,33 @@ window.closeEditScopeModal = () => {
   }
   window.showToastMessage = showToastMessage;
 
+  let lastDiscoverSentTime = 0;
+  const MIN_DISCOVER_INTERVAL_MS = 3000; // Minimum 3 seconds cooldown between discover RF transmissions
+
   function sendDiscoverRepeaterCommand() {
+    const now = Date.now();
+    const elapsed = now - lastDiscoverSentTime;
+    if (elapsed < MIN_DISCOVER_INTERVAL_MS) {
+      console.log(`[Discover Rate Limit] Command suppressed (${elapsed}ms < ${MIN_DISCOVER_INTERVAL_MS}ms).`);
+      return false;
+    }
+    lastDiscoverSentTime = now;
+
     if (bleManager && bleManager.isConnected) {
       console.log("Sending Discover Repeater command to BLE device...");
       bleManager.sendDiscoverRepeaterCommand();
+      return true;
     } else {
       console.warn("Discover Repeater triggered while BLE disconnected.");
       showToastMessage("⚠️ BLE Disconnected - Connect BLE in System Hub!");
+      return false;
     }
   }
 
   function triggerManualDiscovery() {
     console.log("Manual Discovery triggered via Radar tap...");
-    sendDiscoverRepeaterCommand();
+    const sent = sendDiscoverRepeaterCommand();
+    if (!sent) return;
 
     // Visual feedback: turn radar beam/grid RED for 2s (exact MainActivity.kt line 5239)
     if (radarCanvas) radarCanvas.isDiscovering = true;
@@ -595,38 +791,33 @@ window.closeEditScopeModal = () => {
   }
   window.triggerManualDiscovery = triggerManualDiscovery;
 
+  let globalLastRadarTap = 0;
+
   function attachRadarTapListeners(element) {
     if (!element) return;
-    let lastTap = 0;
 
     const handleTap = (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+
       const idText = document.getElementById('tvRepeaterId');
       if (idText && idText.style.display !== 'none' && (e.target === idText || idText.contains(e.target))) {
         return false;
       }
 
       const now = Date.now();
-      if (now - lastTap < 300) return true;
-      lastTap = now;
+      if (now - globalLastRadarTap < 1000) return true; // 1s tap debounce
+      globalLastRadarTap = now;
 
       triggerManualDiscovery();
       return true;
     };
 
     element.addEventListener('click', (e) => {
-      const idText = document.getElementById('tvRepeaterId');
-      if (idText && idText.style.display !== 'none' && (e.target === idText || idText.contains(e.target))) {
-        return;
-      }
       handleTap(e);
     });
 
     element.addEventListener('touchend', (e) => {
-      const idText = document.getElementById('tvRepeaterId');
-      if (idText && idText.style.display !== 'none' && (e.target === idText || idText.contains(e.target))) {
-        return;
-      }
-      e.preventDefault();
+      if (e && e.preventDefault) e.preventDefault();
       handleTap(e);
     });
   }
@@ -635,7 +826,7 @@ window.closeEditScopeModal = () => {
     radarCanvas = new RadarCanvas('canvasRadar');
     radarCanvas.start();
 
-    attachRadarTapListeners(document.getElementById('canvasRadar'));
+    // Bind event listener ONLY once to container wrapper (prevents event bubbling double-trigger)
     attachRadarTapListeners(document.querySelector('.radar-container'));
 
     radarCanvasFull = new RadarCanvas('canvasRadarFull');
@@ -1786,6 +1977,8 @@ window.closeEditScopeModal = () => {
           meshPacket: frame.meshPacket || null
         };
 
+        LogManager.log("WardriveService", `Decoded message from ${realSender}: ${msgText} (Hops: ${frame.hopCount})`);
+
         let targetKey = "";
         if (frame.isDM) {
            entry.recipientId = "Self"; // We received a DM
@@ -1922,6 +2115,9 @@ window.closeEditScopeModal = () => {
           hopCount
         };
 
+        const typeName = (typeof ProtocolDecoder !== 'undefined' && ProtocolDecoder.getSignalTypeName) ? ProtocolDecoder.getSignalTypeName(meshPacket ? meshPacket.payloadType : 0) : `0x${(meshPacket ? meshPacket.payloadType : 0).toString(16)}`;
+        LogManager.log("WardriveService", `RF_LOG: ID=${nodeId}, SNR=${snr}, RSSI=${rssi}, Hops=${hopCount}, Type=${typeName}`);
+
         lastSignalTime = Date.now();
 
         // Detect Scope
@@ -2005,12 +2201,12 @@ window.closeEditScopeModal = () => {
             const encrypted = raw.slice(1);
 
             for (const ch of syncedChannels) {
-              const psk = (ch.psk && ch.psk.some && ch.psk.some(b => b !== 0)) ? ch.psk : DEFAULT_PUBLIC_PSK;
+              const psk = getEffectivePsk(ch);
               ProtocolDecoder.Crypto.decryptAES(psk, encrypted).then(decrypted => {
                 if (decrypted && decrypted.length >= 5) {
                   try {
                     const textBytes = decrypted.slice(5);
-                    const decodedText = ProtocolDecoder.tryDecodePrefixed(textBytes);
+                    const decodedText = ProtocolDecoder.decodeTextBytes(textBytes);
 
                     if (ProtocolDecoder.isPrintable(decodedText)) {
                       const split = ProtocolDecoder.splitSenderAndText(decodedText);
@@ -2060,7 +2256,7 @@ window.closeEditScopeModal = () => {
             // Direct Message
             try {
               const textBytes = raw.slice(5);
-              const decodedText = ProtocolDecoder.tryDecodePrefixed(textBytes);
+              const decodedText = ProtocolDecoder.decodeTextBytes(textBytes);
               if (ProtocolDecoder.isPrintable(decodedText)) {
                 const split = ProtocolDecoder.splitSenderAndText(decodedText);
                 const matchBody = (split.body ? split.body : decodedText).replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
@@ -2507,37 +2703,50 @@ window.closeEditScopeModal = () => {
     const modalDetails = document.getElementById('modalDetails');
     if (modalDetails) modalDetails.classList.remove('active');
 
-    let rawHex = entry.rawHex;
-    let cleanText = entry.message ? entry.message.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim() : "";
-    let tsKey = entry.radioTimestamp || entry.ackTag || entry.radioHash;
+    let rawMsg = entry.message || "";
+    // Strip [ChannelName] prefix
+    if (rawMsg.startsWith("[") && rawMsg.includes("] ")) {
+      rawMsg = rawMsg.substring(rawMsg.indexOf("] ") + 2).trim();
+    }
+    // Strip SenderName: prefix
+    if (rawMsg.includes(": ")) {
+      rawMsg = rawMsg.substring(rawMsg.indexOf(": ") + 2).trim();
+    }
+    const cleanText = rawMsg.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+    const tsKey = entry.radioTimestamp || entry.ackTag || entry.radioHash || entry.msgHash;
 
+    let rawHex = entry.rawHex;
     // Check if 0x88 RF log hex exists in recent buffers (exact WardriveService.kt lines 1540-1550)
     if (!rawHex || !rawHex.startsWith("88")) {
       rawHex = (tsKey ? recentRfLogsRawByTimestamp.get(tsKey) : null) ||
-               (cleanText ? recentRfLogsRawByText.get(cleanText) : null);
+               (cleanText ? recentRfLogsRawByText.get(cleanText) : null) ||
+               (entry.message ? recentRfLogsRawByText.get(entry.message.trim()) : null);
       if (rawHex) entry.rawHex = rawHex;
     }
 
-    // Check if matching 0x88 RF log item exists in allReceivedLogs by timestamp or message text
-    // STRICT: Exclude Advert (0x04) packets! Only match actual chat/RF log packets (0x05, 0x02, 0x10, 0x11, 0x88)
-    let log = null;
-    if (entry.rawHex && entry.rawHex.startsWith("88") && entry.payloadType !== 0x04) {
-      log = entry;
-    } else {
-      log = allReceivedLogs.find(l => {
-        if (l.rawHex && l.rawHex.startsWith("88")) {
-          const lPType = l.meshPacket ? l.meshPacket.payloadType : l.payloadType;
-          if (lPType === 0x04) return false; // Never match Advert packets for chat Deep Dive!
-          if (tsKey && l.radioTimestamp && Number(l.radioTimestamp) === Number(tsKey)) return true;
-          if (cleanText && l.message && l.message.trim().toLowerCase() === cleanText.toLowerCase()) return true;
-        }
-        return false;
-      });
+    // Decode rawHex into meshPacket if available
+    let decodedMesh = null;
+    if (rawHex && rawHex.startsWith("88") && typeof ProtocolDecoder !== 'undefined') {
+      decodedMesh = ProtocolDecoder.decodeRawHex(rawHex);
     }
 
-    // Extract cleanest repeater path from echoes or meshPacket
+    // Find matching 0x88 RF log item from allReceivedLogs
+    let log = allReceivedLogs.find(l => {
+      if (l.rawHex && l.rawHex.startsWith("88")) {
+        const lPType = l.meshPacket ? l.meshPacket.payloadType : l.payloadType;
+        if (lPType === 0x04) return false; // Exclude Advert packets
+        if (tsKey && l.radioTimestamp && Number(l.radioTimestamp) === Number(tsKey)) return true;
+        if (rawHex && l.rawHex === rawHex) return true;
+        if (cleanText && l.message && l.message.trim().toLowerCase().includes(cleanText.toLowerCase())) return true;
+      }
+      return false;
+    });
+
+    // Extract cleanest repeater path from decodedMesh, log, entry.meshPacket or echoes
     let pathList = [];
-    if (log && log.meshPacket && log.meshPacket.path && log.meshPacket.path.length > 0) {
+    if (decodedMesh && decodedMesh.path && decodedMesh.path.length > 0) {
+      pathList = decodedMesh.path;
+    } else if (log && log.meshPacket && log.meshPacket.path && log.meshPacket.path.length > 0) {
       pathList = log.meshPacket.path;
     } else if (entry.meshPacket && entry.meshPacket.path && entry.meshPacket.path.length > 0) {
       pathList = entry.meshPacket.path;
@@ -2546,28 +2755,37 @@ window.closeEditScopeModal = () => {
       if (validEcho) pathList = validEcho.path;
     }
 
-    const payloadTypeToUse = (log && log.meshPacket) ? log.meshPacket.payloadType :
+    const payloadTypeToUse = (decodedMesh && decodedMesh.payloadType !== undefined) ? decodedMesh.payloadType :
+                             ((log && log.meshPacket) ? log.meshPacket.payloadType :
                              (entry.meshPacket ? entry.meshPacket.payloadType :
-                             (entry.channelIdx !== undefined && entry.channelIdx !== null ? 0x05 : 0x02));
+                             (entry.channelIdx !== undefined && entry.channelIdx !== null ? 0x05 : 0x02)));
+
+    const finalMeshPacket = decodedMesh || (log && log.meshPacket ? log.meshPacket : null) || (entry.meshPacket ? entry.meshPacket : null) || {
+      routeType: 0,
+      payloadType: payloadTypeToUse,
+      payloadVersion: 0,
+      hopCount: pathList.length > 0 ? pathList.length : (entry.hopCount >= 0 ? entry.hopCount : 0),
+      path: pathList
+    };
+
+    // Ensure path array is populated on finalMeshPacket
+    if (!finalMeshPacket.path || finalMeshPacket.path.length === 0) {
+      finalMeshPacket.path = pathList;
+    }
 
     // Construct a clean Deep Dive item directly from the message entry
     const itemToDisplay = {
       nodeId: entry.senderId || entry.rawSenderId || "UKWN",
       sourceId: entry.senderId || entry.rawSenderId,
       senderName: entry.senderName,
-      snr: (log && log.snr !== undefined) ? log.snr : entry.snr,
-      rssi: (log && log.rssi !== undefined) ? log.rssi : entry.rssi,
-      hops: entry.hopCount >= 0 ? entry.hopCount : (log && log.hopCount >= 0 ? log.hopCount : '-'),
+      snr: (log && log.snr !== undefined) ? log.snr : (entry.snr !== undefined ? entry.snr : 0),
+      rssi: (log && log.rssi !== undefined) ? log.rssi : (entry.rssi !== undefined ? entry.rssi : -75),
+      hops: pathList.length > 0 ? pathList.length : (entry.hopCount >= 0 ? entry.hopCount : (log && log.hopCount >= 0 ? log.hopCount : '-')),
       message: entry.message,
-      rawHex: log ? log.rawHex : entry.rawHex,
-      meshPacket: (log && log.meshPacket) ? log.meshPacket : (entry.meshPacket || {
-        routeType: 0,
-        payloadType: payloadTypeToUse,
-        payloadVersion: 0,
-        hopCount: entry.hopCount >= 0 ? entry.hopCount : 0,
-        path: pathList
-      }),
-      echoes: entry.echoes,
+      decryptedContent: entry.message,
+      rawHex: rawHex || (log ? log.rawHex : entry.rawHex),
+      meshPacket: finalMeshPacket,
+      echoes: entry.echoes || (log ? log.echoes : null),
       time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '',
       payloadType: payloadTypeToUse
     };
@@ -2847,6 +3065,7 @@ window.closeEditScopeModal = () => {
     lastReceivedSignal = { nodeId: id, hopCount, payloadType };
 
     if (hopEl) {
+      hopEl.style.display = 'block';
       let typeTag = '';
       if (payloadType !== null && payloadType !== undefined && typeof window.ProtocolDecoder !== 'undefined') {
         const typeName = ProtocolDecoder.getSignalTypeName(payloadType);
@@ -2925,8 +3144,11 @@ window.closeEditScopeModal = () => {
       if (repeaterDisplayTimeout) clearTimeout(repeaterDisplayTimeout);
 
       repeaterDisplayTimeout = setTimeout(() => {
-        // After 3 seconds: hide large ID text and restore/start small sweeping radar
+        // After 3 seconds: hide large ID text AND sub-text, and restore/start small sweeping radar
         textEl.style.display = 'none';
+        if (hopEl) {
+          hopEl.style.display = 'none';
+        }
         if (radarCanvasEl && activeNavTab !== 'analysis' && activeNavTab !== 'chat') {
           radarCanvasEl.style.display = 'block';
         }
@@ -2948,11 +3170,16 @@ window.closeEditScopeModal = () => {
     const displayName = name || hexId;
 
     const textEl = document.getElementById('tvRepeaterId');
+    const hopEl = document.getElementById('tvHopCount');
     const radarCanvasEl = document.getElementById('canvasRadar');
 
     if (textEl) {
       textEl.style.color = '#00E5FF'; // Cyan (exact MainActivity.kt line 4729)
       autoFitRepeaterText(textEl, displayName);
+    }
+
+    if (hopEl) {
+      hopEl.style.display = 'block';
     }
 
     if (radarCanvasEl) {
@@ -2967,6 +3194,9 @@ window.closeEditScopeModal = () => {
       if (textEl) {
         textEl.style.display = 'none';
         textEl.innerText = '--';
+      }
+      if (hopEl) {
+        hopEl.style.display = 'none';
       }
       if (radarCanvasEl && activeNavTab !== 'analysis' && activeNavTab !== 'chat') {
         radarCanvasEl.style.display = 'block';
@@ -3875,13 +4105,22 @@ window.closeEditScopeModal = () => {
         const cleanHash = hopHash.trim().toUpperCase();
         if (cleanHash.length < 4) return;
 
-        const match = nodesArr.find(contact => {
+        let match = nodesArr.find(contact => {
           if (!contact.lat || !contact.lng || (contact.lat === 0 && contact.lng === 0)) return false;
           const cId = (contact.id || '').trim().toUpperCase();
           if (cId.length < 4) return false;
           const cPk = (contact.publicKey || '').trim().toUpperCase();
           return cId.startsWith(cleanHash) || cleanHash.startsWith(cId) || (cPk && cPk.startsWith(cleanHash));
         });
+
+        // Fallback: search in bestSeenMap / allReceivedLogs if contact wasn't in locatedNodes
+        if (!match) {
+          const logMatch = Array.from(bestSeenMap.values()).find(l => l.nodeId && l.nodeId.toUpperCase().startsWith(cleanHash) && l.lat && l.lng && l.lat !== 0 && l.lng !== 0) ||
+                           allReceivedLogs.find(l => l.nodeId && l.nodeId.toUpperCase().startsWith(cleanHash) && l.lat && l.lng && l.lat !== 0 && l.lng !== 0);
+          if (logMatch) {
+            match = { id: cleanHash, name: findNodeName(cleanHash) || cleanHash, lat: logMatch.lat, lng: logMatch.lng };
+          }
+        }
 
         if (match) {
           const cCoords = getNodeCoordinates(match);
@@ -3899,7 +4138,14 @@ window.closeEditScopeModal = () => {
       // 2. Direct 0-hop packet: ONLY add Origin Node when path list is empty!
       const srcId = (item.nodeId || (meshPacket && meshPacket.lastHopId) || '').trim().toUpperCase();
       if (srcId.length >= 4) {
-        const originNode = nodesArr.find(c => c.id && c.id.trim().toUpperCase().length >= 4 && isSameNodeId(c.id, srcId) && c.lat !== 0 && c.lng !== 0);
+        let originNode = nodesArr.find(c => c.id && c.id.trim().toUpperCase().length >= 4 && isSameNodeId(c.id, srcId) && c.lat !== 0 && c.lng !== 0);
+        if (!originNode) {
+          const logMatch = Array.from(bestSeenMap.values()).find(l => l.nodeId && isSameNodeId(l.nodeId, srcId) && l.lat && l.lng && l.lat !== 0 && l.lng !== 0) ||
+                           allReceivedLogs.find(l => l.nodeId && isSameNodeId(l.nodeId, srcId) && l.lat && l.lng && l.lat !== 0 && l.lng !== 0);
+          if (logMatch) {
+            originNode = { id: srcId, name: findNodeName(srcId) || srcId, lat: logMatch.lat, lng: logMatch.lng };
+          }
+        }
         if (originNode) {
           const cCoords = getNodeCoordinates(originNode);
           if (cCoords) {
@@ -3909,13 +4155,23 @@ window.closeEditScopeModal = () => {
       }
     }
 
-    // 3. Final Step: Car / Receiver Position (RX location - exact MainActivity.kt line 3820)
-    const rxLat = parseFloat(item.lat || 0);
-    const rxLng = parseFloat(item.lng || 0);
+    // 3. Final Step: Car / Receiver Position (RX location - exact 1:1 match with MainActivity.kt line 3950)
+    let rxLat = parseFloat(item.lat || 0);
+    let rxLng = parseFloat(item.lng || 0);
+
+    // Fallback if item's recorded lat/lng was 0: use active userLocation or lastGpsPosition
+    if ((isNaN(rxLat) || isNaN(rxLng) || rxLat === 0 || rxLng === 0) && userLocation && userLocation.lat && userLocation.lng) {
+      rxLat = userLocation.lat;
+      rxLng = userLocation.lng;
+    } else if ((isNaN(rxLat) || isNaN(rxLng) || rxLat === 0 || rxLng === 0) && lastGpsPosition && lastGpsPosition.lat && lastGpsPosition.lng) {
+      rxLat = lastGpsPosition.lat;
+      rxLng = lastGpsPosition.lng;
+    }
+
     if (!isNaN(rxLat) && !isNaN(rxLng) && rxLat !== 0 && rxLng !== 0) {
       const isDuplicateWithLast = hops.length > 0 && (calculateDistanceKm(hops[hops.length - 1].lat, hops[hops.length - 1].lng, rxLat, rxLng) * 1000) < 5.0;
       if (!isDuplicateWithLast) {
-        hops.push({ name: "Car GPS", id: "AUTO", lat: rxLat, lng: rxLng, stepType: 2 });
+        hops.push({ name: "Car GPS (RX)", id: "CAR", lat: rxLat, lng: rxLng, stepType: 2 });
       }
     }
 
@@ -4051,7 +4307,7 @@ window.closeEditScopeModal = () => {
     if (resolvedName) addDetailRow("Resolved Node Name", resolvedName);
 
     // Message Decryption / Extraction (Exact 1:1 match with MainActivity.kt lines 9375-9460)
-    let extractedMsg = item.decryptedContent || item.message || item.text || item.body;
+    let extractedMsg = item.decryptedContent;
 
     if (!extractedMsg && meshPacket && meshPacket.payload) {
       const p = meshPacket.payload;
@@ -4059,26 +4315,34 @@ window.closeEditScopeModal = () => {
         extractedMsg = p.text;
       } else if (p.body) {
         extractedMsg = p.body;
-      } else if (p.rawPayload && p.rawPayload.length >= 6 && typeof ProtocolDecoder !== 'undefined') {
-        // Attempt AES channel decryption (exact MainActivity.kt line 9387)
-        const encrypted = p.rawPayload.slice(1);
-        const channels = (window.syncedChannels && window.syncedChannels.length > 0) ? window.syncedChannels : [{ psk: DEFAULT_PUBLIC_PSK }];
-        for (const ch of channels) {
-          const psk = (ch.psk && Array.isArray(ch.psk) && ch.psk.some(b => b !== 0)) ? ch.psk : DEFAULT_PUBLIC_PSK;
-          try {
-            const decrypted = await ProtocolDecoder.Crypto.decryptAES(psk, encrypted);
-            if (decrypted && decrypted.length >= 5) {
-              const textBytes = decrypted.slice(5);
-              const decodedText = ProtocolDecoder.tryDecodePrefixed(textBytes);
-              const split = ProtocolDecoder.splitSenderAndText(decodedText);
-              const body = split.body || decodedText;
-              extractedMsg = split.sender ? `${split.sender}: ${body}` : body;
-              if (extractedMsg) {
-                item.decryptedContent = extractedMsg;
-                break;
+      } else if (p.rawPayload && p.rawPayload.length >= 5 && typeof ProtocolDecoder !== 'undefined') {
+        if (pType === 0x02) {
+          // Direct Text Message
+          const textBytes = p.rawPayload.slice(5);
+          extractedMsg = ProtocolDecoder.decodeTextBytes(textBytes);
+        } else if (p.rawPayload.length >= 6) {
+          // Attempt AES channel decryption (exact MainActivity.kt line 9387)
+          const encrypted = p.rawPayload.slice(1);
+          const channels = (window.syncedChannels && window.syncedChannels.length > 0) ? window.syncedChannels : [{ psk: DEFAULT_PUBLIC_PSK }];
+          for (const ch of channels) {
+            const psk = getEffectivePsk(ch);
+            try {
+              const decrypted = await ProtocolDecoder.Crypto.decryptAES(psk, encrypted);
+              if (decrypted && decrypted.length >= 5) {
+                const textBytes = decrypted.slice(5);
+                const decodedText = ProtocolDecoder.decodeTextBytes(textBytes);
+                if (decodedText) {
+                  const split = ProtocolDecoder.splitSenderAndText(decodedText);
+                  const body = split.body || decodedText;
+                  extractedMsg = split.sender ? `${split.sender}: ${body}` : body;
+                  if (extractedMsg) {
+                    item.decryptedContent = extractedMsg;
+                    break;
+                  }
+                }
               }
-            }
-          } catch (e) {}
+            } catch (e) {}
+          }
         }
       }
     }
@@ -4128,6 +4392,7 @@ window.closeEditScopeModal = () => {
     const dotDiameter = Math.max(12, Math.round(24 * zoomScale));
     const stepFontSize = Math.max(8, Math.round(12 * zoomScale));
     const labelFontSize = Math.max(9, Math.round(11 * zoomScale));
+    const arrowSize = Math.max(16, Math.round(26 * zoomScale));
 
     const coordinates = hops.map(h => [h.lng, h.lat]);
 
@@ -4146,23 +4411,50 @@ window.closeEditScopeModal = () => {
       });
     }
 
+    // 1. Draw Directional Flow Arrows at midpoints between consecutive hops (1:1 match with MainActivity.kt line 4081)
+    for (let i = 0; i < hops.length - 1; i++) {
+      const h1 = hops[i];
+      const h2 = hops[i + 1];
+
+      const midLng = (h1.lng + h2.lng) / 2;
+      const midLat = (h1.lat + h2.lat) / 2;
+
+      const p1 = map.project([h1.lng, h1.lat]);
+      const p2 = map.project([h2.lng, h2.lat]);
+
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      const arrowEl = document.createElement('div');
+      arrowEl.innerHTML = `
+        <svg width="${arrowSize}" height="${arrowSize}" viewBox="0 0 24 24" style="transform: rotate(${angleDeg}deg); display: block; pointer-events: none;">
+          <path d="M 19,12 L 4,4 L 8,12 L 4,20 Z" fill="#000000" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round" />
+        </svg>
+      `;
+
+      const arrowMarker = new maplibregl.Marker({ element: arrowEl, anchor: 'center' })
+        .setLngLat([midLng, midLat])
+        .addTo(map);
+
+      trajectoryMarkers.push(arrowMarker);
+    }
+
+    // 2. Draw Circle Dots centered EXACTLY at hop coordinates with label floating above
     hops.forEach((hop, idx) => {
       const color = hop.stepType === 0 ? '#00E676' : (hop.stepType === 1 ? '#00E5FF' : '#FF1744');
       const dispName = (zoomScale >= 0.65 && hop.name && hop.name !== hop.id) ? `${hop.id} (${hop.name})` : hop.id;
 
       const dotEl = document.createElement('div');
+      dotEl.style.cssText = `position: relative; width: ${dotDiameter}px; height: ${dotDiameter}px; border-radius: 50%; background-color: ${color}; border: 2px solid #FFF; box-shadow: 0 0 6px ${color}, 0 2px 4px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; color: #000; font-weight: 900; font-size: ${stepFontSize}px; cursor: pointer; pointer-events: auto;`;
       dotEl.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;">
-          <div style="font-family: system-ui, sans-serif; font-size: ${labelFontSize}px; font-weight: 800; color: #FFF; -webkit-text-stroke: 3px #000; paint-order: stroke fill; white-space: nowrap; margin-bottom: 3px;">
-            ${dispName}
-          </div>
-          <div style="width: ${dotDiameter}px; height: ${dotDiameter}px; border-radius: 50%; background-color: ${color}; border: 2px solid #FFF; box-shadow: 0 0 6px ${color}, 0 2px 4px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; color: #000; font-weight: 900; font-size: ${stepFontSize}px;">
-            ${idx + 1}
-          </div>
+        <div style="position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-family: system-ui, sans-serif; font-size: ${labelFontSize}px; font-weight: 800; color: #FFF; -webkit-text-stroke: 3px #000; paint-order: stroke fill; white-space: nowrap; margin-bottom: 4px; pointer-events: none;">
+          ${dispName}
         </div>
+        ${idx + 1}
       `;
 
-      const marker = new maplibregl.Marker({ element: dotEl, anchor: 'bottom' })
+      const marker = new maplibregl.Marker({ element: dotEl, anchor: 'center' })
         .setLngLat([hop.lng, hop.lat])
         .addTo(map);
 
@@ -5882,18 +6174,18 @@ window.closeEditScopeModal = () => {
         const isActive = activeDirectNodeId === null && activeChannelIndex === ch.index;
 
         const deleteBtn = ch.index > 0
-          ? `<button class="btn btn-danger" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
+          ? `<button class="btn-delete-subtle" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
           : '';
 
         const item = document.createElement('div');
         item.className = `channel-picker-item ${isActive ? 'active' : ''}`;
         item.innerHTML = `
           <div class="channel-info">
-            <span class="channel-name">${unread > 0 ? '🔴 ' : ''}CH${ch.index}: ${ch.name} ${unread > 0 ? `(${unread})` : ''}</span>
+            <span class="channel-name" style="color:#FFEB3B; font-weight:bold; font-size:0.95rem;">${unread > 0 ? '🔴 ' : ''}CH${ch.index}: ${ch.name} ${unread > 0 ? `<span style="color:#00FFC8; font-weight:bold;">(${unread})</span>` : ''}</span>
             <span class="channel-scope">Scope: ${ch.scope || 'Global (Unscoped)'}</span>
           </div>
           <div style="display:flex; align-items:center; gap:6px;">
-            ${isActive ? '<span class="channel-status">ACTIVE</span>' : ''}
+            ${isActive ? '<span class="channel-status" style="background:var(--primary); color:#000; font-weight:bold; font-size:0.7rem; padding:3px 6px; border-radius:4px;">ACTIVE</span>' : ''}
             <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.openEditScopeForChannel(${ch.index});">✏️ Scope</button>
             ${deleteBtn}
           </div>
@@ -5955,10 +6247,10 @@ window.closeEditScopeModal = () => {
         item.className = `channel-picker-item ${isActive ? 'active' : ''}`;
         item.innerHTML = `
           <div class="channel-info">
-            <span class="channel-name">${unread > 0 ? '🔴 ' : ''}👤 DM: ${name} ${unread > 0 ? `(${unread})` : ''}</span>
+            <span class="channel-name" style="color:#FFEB3B; font-weight:bold; font-size:0.95rem;">${unread > 0 ? '🔴 ' : ''}👤 DM: ${name} ${unread > 0 ? `<span style="color:#00FFC8; font-weight:bold;">(${unread})</span>` : ''}</span>
             <span class="channel-scope">Private Node Conversation</span>
           </div>
-          ${isActive ? '<span class="channel-status">ACTIVE</span>' : ''}
+          ${isActive ? '<span class="channel-status" style="background:var(--primary); color:#000; font-weight:bold; font-size:0.7rem; padding:3px 6px; border-radius:4px;">ACTIVE</span>' : ''}
         `;
 
         item.onclick = () => {
@@ -6240,13 +6532,13 @@ window.closeEditScopeModal = () => {
           row.style.cssText = 'padding:8px 0; border-bottom:1px solid #333; display:flex; align-items:center; justify-content:space-between;';
 
           const deleteBtnHtml = ch.index > 0
-            ? `<button class="btn btn-danger" style="padding:4px 8px; font-size:0.7rem;" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
+            ? `<button class="btn-delete-subtle" onclick="event.stopPropagation(); window.confirmDeleteChannel(${ch.index});">🗑️ Delete</button>`
             : '';
 
           row.innerHTML = `
             <label class="cb-label-block" style="margin:0; font-size:0.85rem; cursor:pointer;">
               <input type="checkbox" id="chkChanVis_${ch.index}" ${ch.isVisible !== false ? 'checked' : ''} />
-              <span style="font-weight:bold; color:#FFF; margin-left:6px;">CH${ch.index}: ${ch.name}</span>
+              <span style="font-weight:bold; color:#FFEB3B; margin-left:6px;">CH${ch.index}: ${ch.name}</span>
             </label>
             ${deleteBtnHtml}
           `;
