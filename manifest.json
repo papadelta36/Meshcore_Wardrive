@@ -1,6 +1,7 @@
 {
   "name": "Meshcore Signaal Meter",
   "short_name": "SignaalMeter",
+  "version": "1.01",
   "description": "Tactical LoRa Meshcore Signal Meter & Wardrive PWA",
   "start_url": "./index.html",
   "display": "fullscreen",

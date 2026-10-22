@@ -4,7 +4,21 @@
  */
 
 const MeshCoreScope = {
-  learnedScopes: new Set(["#be", "#nl", "#test", "#mesh", "#vlaanderen", "#antwerpen", "#limburg"]),
+  learnedScopes: new Set([
+    // Core & Common Scopes
+    "#be", "#nl", "#public", "#test", "#mesh", "#general", "#chat", "#emergency", "#wardrive",
+    // Flemish & Belgian Provinces / Regions
+    "#vlaanderen", "#antwerpen", "#limburg", "#oost-vlaanderen", "#west-vlaanderen", "#vlaams-brabant",
+    "#brussel", "#bruxelles", "#brussels", "#wallonie", "#luik", "#liege", "#henegouwen", "#namen", "#namur", "#luxemburg",
+    // Netherlands Provinces & Regions
+    "#noord-holland", "#zuid-holland", "#zeeland", "#noord-brabant", "#brabant", "#utrecht", "#gelderland",
+    "#overijssel", "#drenthe", "#friesland", "#groningen", "#flevoland",
+    // Major Cities & Areas
+    "#gent", "#brugge", "#leuven", "#hasselt", "#mechelen", "#kortrijk", "#aalst", "#sint-niklaas",
+    "#amsterdam", "#rotterdam", "#denhaag", "#utrecht-stad", "#eindhoven", "#tilburg", "#breda", "#nijmegen", "#arnhem", "#maastricht",
+    // Germany & Neighboring Regions
+    "#de", "#nrw", "#aachen", "#koeln", "#duesseldorf", "#fr"
+  ]),
   keyCache: new Map(),
 
   init() {

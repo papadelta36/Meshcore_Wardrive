@@ -6,7 +6,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Meshcore Signaal Meter & Wardrive Web v1.0</title>
+  <title>Meshcore Signaal Meter & Wardrive Web v1.01</title>
 
   <!-- Anti-Cache HTTP Headers for Smartphone Local Servers -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
@@ -38,15 +38,6 @@
       });
     }
 
-    // Auto-Fullscreen Trigger on First User Interaction (bypasses browser gesture restriction)
-    window.addEventListener('click', function autoFullscreenOnFirstInteraction() {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        const docEl = document.documentElement;
-        if (docEl.requestFullscreen) docEl.requestFullscreen().catch(() => {});
-        else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
-      }
-    }, { once: true });
-
     // Handle PWA Install Prompt without blocking UI
     window.addEventListener('beforeinstallprompt', (e) => {
       // Prevent browser default banner if needed or store event for custom install button
@@ -70,7 +61,7 @@
       <!-- Row 1: Filter Button + Reload + Fullscreen + Hamburger -->
       <div class="header-row-1">
         <button id="btnFilters" class="btn-filter-main" onclick="openFilterHub()">🔍 FILTERS</button>
-        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v1.0</button>
+        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v1.01</button>
         <button id="btnFullscreen" class="btn-fullscreen" title="Toggle Fullscreen" onclick="toggleAppFullscreen()">⛶</button>
         <button id="btnHamburger" class="btn-hamburger" title="System Hub & Settings" onclick="openSystemHub()">≡</button>
       </div>
@@ -111,15 +102,17 @@
       <canvas id="canvasGridBg" class="grid-background-canvas"></canvas>
 
       <div class="node-info-content">
-        <!-- Left Column: Speed & Trip Stats (Fixed 75px) -->
+        <!-- Left Column: Speed & Trip Stats (Fixed 82px) -->
         <div class="left-col">
-          <div class="speed-container">
-            <span id="tvSpeedValue" class="speed-val">0</span>
-            <span id="tvSpeedUnit" class="speed-unit">KM/H</span>
-          </div>
-          <div class="trip-stats-dashboard">
-            <span id="tvTripDistDashboard" class="trip-val">0.00 km</span>
-            <span id="tvTripTimeDashboard" class="trip-val">00:00:00</span>
+          <div class="left-top-section">
+            <div class="speed-container">
+              <span id="tvSpeedValue" class="speed-val">0</span>
+              <span id="tvSpeedUnit" class="speed-unit">KM/H</span>
+            </div>
+            <div class="trip-stats-dashboard">
+              <span id="tvTripDistDashboard" class="trip-val">0.00 km</span>
+              <span id="tvTripTimeDashboard" class="trip-val">00:00:00</span>
+            </div>
           </div>
           <div id="llAutoDiscoverTime" class="auto-discover-bar" style="display: none;">
             <div class="progress-outer"><div id="pbAutoTime" class="progress-inner"></div></div>
@@ -136,11 +129,13 @@
           <span id="tvHopCount" class="hop-count-text" style="display: none;">Hops: -</span>
         </div>
 
-        <!-- Right Column: Compass Arrow & Heading (Fixed 75px) -->
+        <!-- Right Column: Compass Arrow & Heading (Fixed 82px) -->
         <div class="right-col">
-          <div class="compass-container">
-            <canvas id="canvasCompass" class="compass-canvas" width="32" height="32"></canvas>
-            <span id="tvCompassValue" class="compass-val">N 0°</span>
+          <div class="right-top-section">
+            <div class="compass-container">
+              <canvas id="canvasCompass" class="compass-canvas" width="32" height="32"></canvas>
+              <span id="tvCompassValue" class="compass-val">N 0°</span>
+            </div>
           </div>
           <div id="llAutoDiscoverDist" class="auto-discover-bar" style="display: none;">
             <div class="progress-outer"><div id="pbAutoDist" class="progress-inner"></div></div>
@@ -569,7 +564,7 @@
           <button class="btn btn-primary" style="width:100%; margin-bottom:8px; font-weight:bold;" onclick="openHelpInfoModal()">📖 User Manual & Legal Notice</button>
 
           <div style="margin-top:10px; padding:10px; background:#121212; border:1px solid #FFEB3B; border-radius:6px; text-align:center;">
-            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.0</div>
+            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.01</div>
             <div style="font-weight:bold; color:#FFFFFF; font-size:0.8rem; margin-top:2px;">Designed by Papa Delta & Gemini</div>
             <div style="font-size:0.75rem; color:#AAA; margin-top:2px;">Contact: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
           </div>
@@ -629,26 +624,28 @@
 
         <!-- CREDITS BANNER -->
         <div style="padding:12px; background:#121212; border:1px solid #FFEB3B; border-radius:8px; text-align:center; margin-bottom:16px;">
-          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.0</h3>
+          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.01</h3>
           <div style="font-weight:bold; color:#FFFFFF; font-size:0.9rem;">Designed by Papa Delta & Gemini</div>
           <div style="font-size:0.8rem; color:#AAA; margin-top:4px;">Contact & Support: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
         </div>
 
         <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">1. Overview & Purpose</h3>
-        <p>The Meshcore Signaal Meter & Wardrive app is designed for monitoring, logging, mapping, and communicating over <strong>Meshcore LoRa mesh networks</strong> via a Bluetooth Low Energy (BLE) companion repeater node. It provides real-time signal metrics, GPS wardriving logs, tactical radar, and instant channel/direct messaging.</p>
+        <p>The Meshcore Signaal Meter & Wardrive app is designed for monitoring, logging, mapping, and communicating over <strong>Meshcore LoRa mesh networks</strong> via a Bluetooth Low Energy (BLE) companion repeater node. It provides real-time signal metrics, GPS wardriving logs, tactical CRT radar, and instant channel/direct messaging.</p>
 
-        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">2. Getting Started</h3>
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">2. Getting Started & Controls</h3>
         <ul style="padding-left:20px; margin-top:4px;">
           <li><strong>Bluetooth Pairing:</strong> Open System Hub (≡) and tap "📶 Scan & Connect BLE" to select your Meshcore companion node.</li>
           <li><strong>Handshake & Sync:</strong> Upon connection, the app automatically executes the official handshake (Query ➔ App Start ➔ Channel Sync ➔ Contacts).</li>
-          <li><strong>Start Trip:</strong> Tap "START" on the dashboard to record unfiltered GPS signal logs.</li>
+          <li><strong>Fullscreen Toggle:</strong> Use the <code>⛶</code> button in the top bar to switch between Fullscreen and Standard Windowed mode according to user preference.</li>
+          <li><strong>Persistent Storage:</strong> The app automatically requests Persistent Storage on startup to protect saved trips, contacts, and chat history against browser cache clearing.</li>
         </ul>
 
         <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">3. Dashboard & Radio Metrics</h3>
         <ul style="padding-left:20px; margin-top:4px;">
-          <li><strong>Speed & Trip Stats:</strong> Live GPS speed (KM/H), total trip distance (km), and duration.</li>
+          <li><strong>Speed & Trip Stats:</strong> Auto-scaling high-visibility GPS speed (KM/H) supporting 3-digit values, total trip distance (km), and duration.</li>
+          <li><strong>Auto-Discover Progress:</strong> Aligned TIME (1m) and DIST (100m) progress bars at the bottom of the dashboard card.</li>
           <li><strong>VU Meters:</strong> Real-time RSSI (dBm) and SNR (dB) signal meters.</li>
-          <li><strong>Tactical Radar & Compass:</strong> 1:1 compass arrow indicating travel direction and interactive radar blips showing newly heard nodes. Tap the radar to open full-screen Tactical CRT Radar view.</li>
+          <li><strong>Tactical Radar & Location Marker:</strong> Interactive radar blips showing newly heard nodes and a clean glowing cyan position dot on the map.</li>
         </ul>
 
         <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">4. Filter Hub & Target Focus</h3>
@@ -667,18 +664,18 @@
         </ul>
 
         <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">6. Signal Deep Dive & Trajectories</h3>
-        <p>Long-press any signal log or contact to open <strong>Signal Deep Dive</strong>. Tap "Full Repeater Path" to draw the complete hop-by-hop route on the map with arrows and numbered hops.</p>
+        <p>Long-press any signal log or contact to open <strong>Signal Deep Dive</strong>. Displays decoded raw hex, payload details, and tap "Full Repeater Path" to draw the complete hop-by-hop route on the map with flow arrows.</p>
 
-        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">7. Messenger & Driving Mode (> 5 km/h)</h3>
+        <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">7. Messenger, Scopes & Alerts</h3>
         <ul style="padding-left:20px; margin-top:4px;">
           <li><strong>Channels & DMs:</strong> Switch between public/regional channels or private direct conversations.</li>
-          <li><strong>Hands-Free Voice Dictation:</strong> Tap 🎙️ to dictate messages with an automated 5-second send timer.</li>
-          <li><strong>Driving Mode:</strong> When speed exceeds 5 km/h (or toggled manually), the messenger automatically expands into large, high-accessibility typography (`2.85rem` message text) for safe in-car viewing.</li>
-          <li><strong>Delivery Status:</strong> Single checkmark (`✔`) indicates sent to radio; double green checkmark (`✔✔`) confirms network ACK delivery.</li>
+          <li><strong>Region Scope Badges:</strong> Decodes MeshCore Region Scopes (e.g. <code>[#vlaanderen]</code>, <code>[#be]</code>, <code>[#nl]</code>, <code>[#public]</code>) using SHA-256 keys and HMAC-SHA256 transport codes.</li>
+          <li><strong>In-App Map Alerts:</strong> Incoming messages trigger an in-app overlay banner exclusively when viewing the main Map UI (<code>[MAP]</code> tab). While in the Messenger (<code>[CHAT]</code> tab), messages appear quietly in real-time in the chat feed without overlay popups.</li>
+          <li><strong>Driving Mode:</strong> When speed exceeds 5 km/h (or toggled manually), the messenger automatically expands into large, high-accessibility typography for safe in-car viewing.</li>
         </ul>
 
         <h3 style="color:#4CAF50; border-bottom:1px solid #333; padding-bottom:4px; margin-top:12px;">8. Data Export & Trips</h3>
-        <p>Tap "TRIPS" to export recorded sessions as <strong>CSV</strong> (for Excel/Python analysis) or <strong>KML</strong> (for Google Earth visual tracking).</p>
+        <p>Tap "TRIPS" to export or import recorded sessions as <strong>CSV</strong> (with 9 standard columns and <code>mesh_log_</code> naming prefix for 100% Android app compatibility) or <strong>KML</strong> (for Google Earth tracking).</p>
 
         <h3 style="color:#FF9800; border-bottom:1px solid #333; padding-bottom:4px; margin-top:16px;">⚖️ Legal, Licensing & Privacy Notice</h3>
         <div style="background:#1A1A1A; padding:10px; border-radius:6px; margin-top:6px;">

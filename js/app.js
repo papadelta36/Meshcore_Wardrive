@@ -695,8 +695,25 @@ window.closeEditScopeModal = () => {
   });
 
   // --- Initialize Components on DOMContentLoaded ---
+  async function requestPersistentStorage() {
+    if (navigator.storage && navigator.storage.persist) {
+      try {
+        const isPersisted = await navigator.storage.persisted();
+        if (!isPersisted) {
+          const granted = await navigator.storage.persist();
+          console.log(`Persistent storage granted: ${granted}`);
+        } else {
+          console.log("Storage is already persistent.");
+        }
+      } catch (e) {
+        console.warn("Persistent storage request notice:", e);
+      }
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     try { loadPersistedData(); } catch (e) { console.error("Persistence load notice:", e); }
+    try { requestPersistentStorage(); } catch (e) {}
     try { initCanvases(); } catch (e) { console.error("Error initializing Canvases:", e); }
     try { initMap(); } catch (e) { console.error("Error initializing Map:", e); }
     try { initGpsTracking(); } catch (e) { console.warn("GPS Tracking notice:", e); }
@@ -1546,33 +1563,27 @@ window.closeEditScopeModal = () => {
   let carAnimationStartTime = null;
   let carAnimationFrame = null;
 
-  function updateCarMarker(targetLat, targetLng, targetHeading) {
+  function updateCarMarker(targetLat, targetLng) {
     if (!map || typeof maplibregl === 'undefined') return;
 
     const now = performance.now();
 
     let startLat = targetLat;
     let startLng = targetLng;
-    let startHeading = targetHeading || 0;
 
     if (carAnimationTarget && carAnimationStart && carAnimationStartTime) {
       const elapsed = Math.min(1000, now - carAnimationStartTime);
       const frac = elapsed / 1000;
       startLat = carAnimationStart.lat + (carAnimationTarget.lat - carAnimationStart.lat) * frac;
       startLng = carAnimationStart.lng + (carAnimationTarget.lng - carAnimationStart.lng) * frac;
-
-      let diff = (carAnimationTarget.heading - carAnimationStart.heading) % 360;
-      if (diff < -180) diff += 360;
-      if (diff > 180) diff -= 360;
-      startHeading = (carAnimationStart.heading + diff * frac + 360) % 360;
     } else if (carMarker) {
       const pos = carMarker.getLngLat();
       startLng = pos.lng;
       startLat = pos.lat;
     }
 
-    carAnimationStart = { lat: startLat, lng: startLng, heading: startHeading };
-    carAnimationTarget = { lat: targetLat, lng: targetLng, heading: targetHeading || 0 };
+    carAnimationStart = { lat: startLat, lng: startLng };
+    carAnimationTarget = { lat: targetLat, lng: targetLng };
     carAnimationStartTime = now;
 
     if (carAnimationFrame) {
@@ -1586,27 +1597,15 @@ window.closeEditScopeModal = () => {
       const curLat = carAnimationStart.lat + (carAnimationTarget.lat - carAnimationStart.lat) * frac;
       const curLng = carAnimationStart.lng + (carAnimationTarget.lng - carAnimationStart.lng) * frac;
 
-      let diff = (carAnimationTarget.heading - carAnimationStart.heading) % 360;
-      if (diff < -180) diff += 360;
-      if (diff > 180) diff -= 360;
-      const curHeading = (carAnimationStart.heading + diff * frac + 360) % 360;
-
       if (!carMarker) {
         const el = document.createElement('div');
         el.className = 'gps-car-icon';
-        el.innerHTML = `<div class="car-marker-container" style="transform: rotate(${curHeading}deg);"><div class="car-arrow-head"></div><div class="car-dot-core"></div></div>`;
+        el.innerHTML = `<div class="car-marker-container"><div class="car-dot-core"></div></div>`;
         carMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([curLng, curLat])
           .addTo(map);
       } else {
         carMarker.setLngLat([curLng, curLat]);
-        const el = carMarker.getElement();
-        if (el) {
-          const container = el.querySelector('.car-marker-container');
-          if (container) {
-            container.style.transform = `rotate(${curHeading}deg)`;
-          }
-        }
       }
 
       if (frac < 1.0) {
@@ -2883,6 +2882,9 @@ window.closeEditScopeModal = () => {
   };
 
   function showMessageOverlay(nodeId, text, hopCount, scopeName = null) {
+    // Only show message overlay when user is on the main start UI / Map view
+    if (activeNavTab !== 'map') return;
+
     const cbMsg = document.getElementById('cbMsgEnabled');
     if (!cbMsg || !cbMsg.checked) return;
 
@@ -2904,8 +2906,6 @@ window.closeEditScopeModal = () => {
     messageOverlayTimeout = setTimeout(() => {
       overlay.style.display = 'none';
     }, 10000);
-
-    triggerSystemNotification(nodeId, text, scopeName);
   }
 
   function warmupAudioContext() {
@@ -2923,65 +2923,13 @@ window.closeEditScopeModal = () => {
   window.warmupAudioContext = warmupAudioContext;
 
   async function triggerSystemNotification(nodeId, text, scopeName = null) {
-    const cbMsg = document.getElementById('cbMsgEnabled');
-    if (cbMsg && !cbMsg.checked) return;
-
-    if ("Notification" in window && Notification.permission === "granted") {
-      try {
-        const contact = Array.from(locatedNodes.values()).find(n => n.id && isSameNodeId(n.id, nodeId));
-        const dispName = contact ? contact.name : nodeId;
-        const scopeTag = scopeName ? ` [${scopeName}]` : '';
-
-        const title = `💬 ${dispName}${scopeTag}`;
-        const options = {
-          body: text,
-          icon: './manifest.json',
-          badge: './manifest.json',
-          tag: `meshcore_msg_${Date.now()}`,
-          renotify: true,
-          vibrate: [200, 100, 200],
-          data: { url: window.location.href }
-        };
-
-        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-          const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification(title, options);
-        } else {
-          const notif = new Notification(title, options);
-          notif.onclick = () => {
-            try { window.focus(); } catch (e) {}
-            if (typeof switchNavTab === 'function') switchNavTab('chat');
-          };
-        }
-      } catch (e) {
-        console.warn("System Notification notice:", e);
-      }
-    }
+    // System OS message notifications removed as requested (in-app overlay & beep handled on screen)
+    return;
   }
   window.triggerSystemNotification = triggerSystemNotification;
 
   window.requestNotificationPermission = async () => {
     warmupAudioContext();
-    if ("Notification" in window) {
-      if (Notification.permission === "default") {
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === "granted") {
-            showToastMessage("🔔 Web Notifications Enabled!");
-          } else {
-            showToastMessage("🔔 Notifications Permission Denied");
-          }
-        } catch (e) {
-          console.warn("Notification request notice:", e);
-        }
-      } else if (Notification.permission === "granted") {
-        showToastMessage("🔔 Notifications Already Enabled");
-      } else {
-        showToastMessage("⚠️ Notifications Blocked in Browser Settings");
-      }
-    } else {
-      showToastMessage("⚠️ Browser does not support Web Notifications");
-    }
   };
 
   function findNodeName(lookupId) {
@@ -7397,9 +7345,19 @@ window.closeEditScopeModal = () => {
 
     let csv = "Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,Hops,PayloadType,RawData\n";
     trip.logs.forEach(item => {
-      csv += `${item.time || ''},${item.lat || ''},${item.lng || ''},${item.nodeId || ''},${item.snr || 0},${item.rssi || 0},${item.hops || 0},,${item.rawHex || ''}\n`;
+      const cleanTime = (item.time || '').replace(/,/g, ' ');
+      let typeStr = '';
+      const pType = item.payloadType !== undefined && item.payloadType !== null ? item.payloadType : (item.meshPacket ? item.meshPacket.payloadType : null);
+      if (pType !== null && pType !== undefined) {
+        typeStr = typeof pType === 'number' ? `0x${pType.toString(16).padStart(2, '0').toUpperCase()}` : String(pType);
+      }
+      csv += `${cleanTime},${item.lat || ''},${item.lng || ''},${item.nodeId || ''},${item.snr || 0},${item.rssi || 0},${item.hops || 0},${typeStr},${item.rawHex || ''}\n`;
     });
-    const safeName = (trip.name || 'trip').replace(/[^a-zA-Z0-9]/g, '_');
+    let rawName = (trip.name || 'trip').replace(/^📂\s*/, '').trim();
+    let safeName = rawName.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+/, '');
+    if (!safeName.startsWith('mesh_log_')) {
+      safeName = 'mesh_log_' + safeName;
+    }
     downloadFile(csv, `${safeName}.csv`, 'text/csv');
   };
 
@@ -7564,7 +7522,26 @@ window.closeEditScopeModal = () => {
     for (let i = 1; i < rawLines.length; i++) {
       const line = rawLines[i];
       if (!line) continue;
-      const parts = line.split(sep).map(p => (p !== undefined && p !== null ? String(p).trim().replace(/^["']|["']$/g, '') : ''));
+
+      let parts = [];
+      if (line.includes('"')) {
+        let current = '';
+        let inQuotes = false;
+        for (let c = 0; c < line.length; c++) {
+          const ch = line[c];
+          if (ch === '"') {
+            inQuotes = !inQuotes;
+          } else if (ch === sep && !inQuotes) {
+            parts.push(current.trim().replace(/^["']|["']$/g, ''));
+            current = '';
+          } else {
+            current += ch;
+          }
+        }
+        parts.push(current.trim().replace(/^["']|["']$/g, ''));
+      } else {
+        parts = line.split(sep).map(p => (p !== undefined && p !== null ? String(p).trim().replace(/^["']|["']$/g, '') : ''));
+      }
       if (parts.length < 3) continue;
 
       let time = '', lat = NaN, lng = NaN, nodeId = '', snr = 0, rssi = 0, hops = 0, payloadType = null, rawHex = '';
@@ -7579,6 +7556,10 @@ window.closeEditScopeModal = () => {
         snr = (idxSnr >= 0 && parts[idxSnr] !== undefined) ? parseInt(parts[idxSnr]) || 0 : 0;
         rssi = (idxRssi >= 0 && parts[idxRssi] !== undefined) ? parseInt(parts[idxRssi]) || 0 : 0;
         hops = (idxHops >= 0 && parts[idxHops] !== undefined) ? parseInt(parts[idxHops]) || 0 : 0;
+        if (idxPayload >= 0 && parts[idxPayload] !== undefined && parts[idxPayload] !== '') {
+          const typeStr = parts[idxPayload].trim();
+          payloadType = typeStr.startsWith('0x') || typeStr.startsWith('0X') ? parseInt(typeStr.substring(2), 16) : (parseInt(typeStr) || null);
+        }
         rawHex = (idxRaw >= 0 && parts[idxRaw] !== undefined) ? parts[idxRaw] : '';
       } else {
         // Fallback for headerless CSVs
@@ -7681,11 +7662,17 @@ window.closeEditScopeModal = () => {
       alert("No logs available to export.");
       return;
     }
-    let csv = "Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,RawHex\n";
+    let csv = "Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,Hops,PayloadType,RawData\n";
     allReceivedLogs.forEach(item => {
-      csv += `${item.time},${item.lat},${item.lng},${item.nodeId},${item.snr},${item.rssi},${item.rawHex || ''}\n`;
+      const cleanTime = (item.time || '').replace(/,/g, ' ');
+      let typeStr = '';
+      const pType = item.payloadType !== undefined && item.payloadType !== null ? item.payloadType : (item.meshPacket ? item.meshPacket.payloadType : null);
+      if (pType !== null && pType !== undefined) {
+        typeStr = typeof pType === 'number' ? `0x${pType.toString(16).padStart(2, '0').toUpperCase()}` : String(pType);
+      }
+      csv += `${cleanTime},${item.lat || ''},${item.lng || ''},${item.nodeId || ''},${item.snr || 0},${item.rssi || 0},${item.hops || 0},${typeStr},${item.rawHex || ''}\n`;
     });
-    downloadFile(csv, `meshcore_wardrive_${Date.now()}.csv`, 'text/csv');
+    downloadFile(csv, `mesh_log_wardrive_${Date.now()}.csv`, 'text/csv');
   };
 
   window.exportKml = () => {
@@ -7701,7 +7688,7 @@ window.closeEditScopeModal = () => {
 
   window.exportSessionJson = () => {
     const data = {
-      version: "1.0",
+      version: "1.01",
       timestamp: new Date().toISOString(),
       totalDistanceKm,
       allReceivedLogs,
