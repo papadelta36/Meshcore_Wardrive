@@ -165,10 +165,7 @@ window.clearSystemLogs = () => {
 const DEFAULT_PUBLIC_PSK = new Uint8Array([0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a, 0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72]);
 
 let syncedChannels = [
-  { index: 0, name: "Public", psk: DEFAULT_PUBLIC_PSK, scope: null, isVisible: true },
-  { index: 1, name: "Regio BE", psk: DEFAULT_PUBLIC_PSK, scope: "#be", isVisible: true },
-  { index: 2, name: "Emergency NL", psk: DEFAULT_PUBLIC_PSK, scope: "#nl", isVisible: true },
-  { index: 3, name: "Vlaanderen", psk: DEFAULT_PUBLIC_PSK, scope: "#vlaanderen", isVisible: true }
+  { index: 0, name: "Public", psk: DEFAULT_PUBLIC_PSK, scope: null, isVisible: true }
 ];
 window.syncedChannels = syncedChannels;
 window.clearSyncedChannels = () => { syncedChannels.length = 0; };
@@ -1806,6 +1803,7 @@ window.closeEditScopeModal = () => {
         // Trigger battery request & channel/contact sync upon identity lock (exact WardriveService.kt line 1366)
         if (!bleManager.isSyncStarted) {
           bleManager.isSyncStarted = true;
+          syncedChannels.length = 0; // Clear channels before syncing from BLE radio node
           setTimeout(() => {
             bleManager.requestBatteryStatus();
             bleManager.fetchCompanionChannels();
@@ -2447,8 +2445,8 @@ window.closeEditScopeModal = () => {
           }
         }
 
-        // Add to Map Points
-        if (lat !== 0 && lng !== 0) {
+        // Add to Map Points (Filter out local 0-hop DIRECT RF logs from discover transmissions, exact MainActivity.kt line 6049)
+        if (lat !== 0 && lng !== 0 && nodeId !== "DIRECT" && nodeId !== "UNKNOWN" && !nodeId.startsWith("CH")) {
           mapSignalPoints.push(signalItem);
           renderSignalPointOnMap(signalItem);
         }
@@ -3370,8 +3368,7 @@ window.closeEditScopeModal = () => {
   function playNotificationTone(type) {
     if (type === 1) {
       // Message Notification: decoupled from main screen Beep
-      const isSoundEnabled = localStorage.getItem('messenger_sound_enabled') !== 'false';
-      if (!isSoundEnabled) return;
+      if (typeof isMessengerSoundEnabled !== 'undefined' && !isMessengerSoundEnabled) return;
     } else {
       // Radar or other notification: check main screen Beep
       const cbBeep = document.getElementById('cbBeepEnabled');
@@ -7765,7 +7762,7 @@ window.closeEditScopeModal = () => {
       return;
     }
     let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>Meshcore Track</name>\n<Placemark>\n<LineString>\n<coordinates>\n`;
-    wardriveTrackPoints.forEach(pt => { kml += `${pt[1]},${pt[0]},0\n`; });
+    wardriveTrackPoints.forEach(pt => { kml += `${pt[0]},${pt[1]},0\n`; });
     kml += `</coordinates>\n</LineString>\n</Placemark>\n</Document>\n</kml>`;
     downloadFile(kml, `meshcore_track_${Date.now()}.kml`, 'application/vnd.google-earth.kml+xml');
   };
@@ -7905,7 +7902,10 @@ window.closeEditScopeModal = () => {
   }
 
   // Initial Nav Visibility Check & Connectivity Guard on Page Load
+  let isAppInitialized = false;
   const initAppOnLoad = () => {
+    if (isAppInitialized) return;
+    isAppInitialized = true;
     if (typeof updateNavItemsVisibility === 'function') updateNavItemsVisibility();
     if (typeof window.renderQuickReplyChips === 'function') {
       window.renderQuickReplyChips(window.loadSavedQuickReplies());
@@ -7935,6 +7935,9 @@ window.closeEditScopeModal = () => {
   }
 
   function getCardinalDirection(bearing) {
+    if (typeof getWindDirection === 'function') {
+      return getWindDirection(bearing);
+    }
     const b = (bearing % 360 + 360) % 360;
     if (b >= 337.5 || b < 22.5) return "N";
     if (b >= 22.5 && b < 67.5) return "NE";
@@ -7947,16 +7950,20 @@ window.closeEditScopeModal = () => {
   }
 
   // Expose global helper functions on window to prevent ReferenceErrors
+  window.calculateDistanceKm = calculateDistanceKm;
+  window.haversineDistance = calculateDistanceKm;
   window.triggerMapResize = triggerMapResize;
   window.setMapTileSource = setMapTileSource;
   window.applyTacticalHighContrastRoads = applyTacticalHighContrastRoads;
 
-  // Mobile Soft Keyboard Layout Adjustment: Keep inputMessage visible above keyboard
+  // Mobile Soft Keyboard Layout Adjustment: Debounced scroll to keep inputMessage visible
+  let viewportResizeTimer = null;
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', () => {
       const inputMsg = document.getElementById('inputMessage');
       if (inputMsg && document.activeElement === inputMsg) {
-        setTimeout(() => {
+        if (viewportResizeTimer) clearTimeout(viewportResizeTimer);
+        viewportResizeTimer = setTimeout(() => {
           inputMsg.scrollIntoView({ block: 'end', behavior: 'smooth' });
           const chatBox = document.getElementById('messengerChat');
           if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;

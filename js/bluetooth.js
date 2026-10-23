@@ -420,9 +420,9 @@ class MeshcoreBleManager {
   async sendDirectMessage(targetId, text, scope = null, ackTag = null) {
     if (!this.isConnected || !this.txCharacteristic) return;
 
-    if (scope) {
-      await this.ensureFloodScope(scope);
-    }
+    // ALWAYS ensure flood scope (exact WardriveService.kt line 684)
+    await this.ensureFloodScope(scope);
+    await new Promise(r => setTimeout(r, 120));
 
     const encoder = new TextEncoder();
     const textBytes = encoder.encode(text);

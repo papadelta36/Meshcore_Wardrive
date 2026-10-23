@@ -94,14 +94,16 @@ class RadarCanvas {
       locatedNodes.forEach(node => {
         if (!node || node.lat === undefined || node.lng === undefined || node.lat === 0 || node.lng === 0) return;
 
-        // Haversine Distance in meters
-        const dLat = (node.lat - userLat) * Math.PI / 180;
-        const dLon = (node.lng - userLng) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(userLat * Math.PI / 180) * Math.cos(node.lat * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distanceMeters = 6371000 * c;
+        // Distance calculation via shared Haversine helper
+        const distanceKm = (typeof window.calculateDistanceKm === 'function')
+          ? window.calculateDistanceKm(userLat, userLng, node.lat, node.lng)
+          : (() => {
+              const dLat = (node.lat - userLat) * Math.PI / 180;
+              const dLon = (node.lng - userLng) * Math.PI / 180;
+              const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(userLat * Math.PI / 180) * Math.cos(node.lat * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+              return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            })();
+        const distanceMeters = distanceKm * 1000.0;
 
         if (distanceMeters <= 1000) { // 1 km radius filter
           // Bearing calculation from user position to node position

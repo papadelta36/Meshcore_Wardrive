@@ -128,7 +128,8 @@ class SignalGraphRenderer {
       const hexId = item.nodeId.trim().toUpperCase();
       const name = (typeof window.findNodeName === 'function' ? window.findNodeName(hexId) : null) || hexId;
       const rssi = typeof item.rssi === 'number' ? item.rssi : (parseInt(item.rssi) || -100);
-      const ts = item.time ? (new Date(item.time).getTime() || (Date.now() + idx * 1000)) : (Date.now() + idx * 1000);
+      const parsedTime = item.time && !isNaN(new Date(item.time).getTime()) ? new Date(item.time).getTime() : null;
+      const ts = (item.timestamp && !isNaN(Number(item.timestamp))) ? Number(item.timestamp) : (parsedTime || (Date.now() + idx * 1000));
 
       if (!this.seriesMap.has(hexId)) {
         this.seriesMap.set(hexId, []);

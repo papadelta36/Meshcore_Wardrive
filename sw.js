@@ -1,5 +1,5 @@
-const BUILD_TIMESTAMP = '20260330_164500';
-const CACHE_NAME = 'meshcore-wardrive-v1.03-' + BUILD_TIMESTAMP;
+const BUILD_TIMESTAMP = '20260330_180000';
+const CACHE_NAME = 'meshcore-wardrive-v1.08-' + BUILD_TIMESTAMP;
 const TILE_CACHE_NAME = 'meshcore-map-tiles-v2';
 
 const ASSETS_TO_CACHE = [
@@ -23,7 +23,7 @@ self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log('[ServiceWorker] Pre-caching offline app assets v4200...');
+      console.log('[ServiceWorker] Pre-caching offline app assets ' + CACHE_NAME + '...');
       for (const asset of ASSETS_TO_CACHE) {
         try {
           await cache.add(asset);

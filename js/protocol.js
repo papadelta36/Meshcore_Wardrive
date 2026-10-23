@@ -526,7 +526,12 @@ const ProtocolDecoder = {
         if (data.length >= 66) {
           const scopeBytes = data.slice(50, 66);
           const rawScope = new TextDecoder("utf-8").decode(scopeBytes).split('\0')[0].trim();
-          if (rawScope) scopeStr = rawScope.startsWith('#') ? rawScope : `#${rawScope}`;
+          if (rawScope) {
+            const norm = (typeof MeshCoreScope !== 'undefined' && MeshCoreScope.normalize)
+              ? MeshCoreScope.normalize(rawScope)
+              : (rawScope.startsWith('#') ? rawScope : `#${rawScope}`);
+            scopeStr = (norm === "" || norm === "*") ? null : norm;
+          }
         }
 
         let isEmpty = false;
