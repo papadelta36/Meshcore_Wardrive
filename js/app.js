@@ -522,6 +522,31 @@ window.closeEditScopeModal = () => {
   let recentRfLogsByTimestamp = new Map(); // ts/hash -> HeardPath
   let recentRfLogsRawByText = new Map(); // cleanText -> rawHex (0x88)
   let recentRfLogsRawByTimestamp = new Map(); // ts/hash -> rawHex (0x88)
+  const incomingScopeCorrelation = new Map(); // "CH<idx>:<text>" or "DM:<text>" -> { scope, timestamp }
+
+  function putScopeCorrelation(fingerprint, scopeName) {
+    if (!fingerprint || !scopeName || scopeName === "Global") return;
+    incomingScopeCorrelation.set(fingerprint, { scope: scopeName, timestamp: Date.now() });
+    const now = Date.now();
+    for (const [k, v] of incomingScopeCorrelation.entries()) {
+      if (now - v.timestamp > 60000) incomingScopeCorrelation.delete(k);
+    }
+  }
+
+  function getCorrelatedScope(chanIdx, cleanMsgText) {
+    if (!cleanMsgText) return null;
+    const now = Date.now();
+    for (const [k, v] of incomingScopeCorrelation.entries()) {
+      if (now - v.timestamp <= 60000) {
+        if (chanIdx !== null && chanIdx !== undefined) {
+          if (k === `CH${chanIdx}:${cleanMsgText}`) return v.scope;
+        } else {
+          if (k === `DM:${cleanMsgText}`) return v.scope;
+        }
+      }
+    }
+    return null;
+  }
 
   function putAndTrimMap(map, key, val, maxSize = 50) {
     if (!key) return;
@@ -1961,8 +1986,15 @@ window.closeEditScopeModal = () => {
         );
         if (isDuplicate) return;
 
-        // Detect Scope Name using MeshCoreScope
-        let detectedScopeName = frame.scopeName || null;
+        // Detect Scope Name using MeshCoreScope and Scope Correlation Map
+        const cleanBodyForScope = cleanMsgText ? cleanMsgText.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim() : "";
+        let chanIdxForScope = null;
+        if (!frame.isDM) {
+           const chMatch = frame.senderId ? frame.senderId.match(/^CH(\d+)$/) : null;
+           chanIdxForScope = chMatch ? parseInt(chMatch[1]) : activeChannelIndex;
+        }
+        let correlatedScope = getCorrelatedScope(chanIdxForScope, cleanBodyForScope);
+        let detectedScopeName = frame.scopeName || correlatedScope || null;
 
         const entry = {
           senderId: realSender,
@@ -2119,20 +2151,6 @@ window.closeEditScopeModal = () => {
 
         lastSignalTime = Date.now();
 
-        // Detect Scope
-        if (meshPacket && window.MeshCoreScope) {
-          MeshCoreScope.detectScope(meshPacket).then(scope => {
-            if (scope) {
-              signalItem.scopeName = scope;
-              if (entry && (!entry.scopeName || entry.scopeName === "Global")) {
-                entry.scopeName = scope;
-                savePersistedData();
-                refreshChatMessageHistory();
-              }
-            }
-          });
-        }
-
         // Only update Repeater ID display if this is an actual Last Hop Repeater (nodeId !== "DIRECT")
         if (nodeId !== "DIRECT") {
           updateRepeaterDisplay(nodeId, hopCount, signalItem.payloadType);
@@ -2166,6 +2184,13 @@ window.closeEditScopeModal = () => {
           if (signalItem.scopeName && (!matchedMsg.scopeName || matchedMsg.scopeName === "Global")) {
             matchedMsg.scopeName = signalItem.scopeName;
           }
+          const cleanBody = (matchedMsg.message || "").replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+          if (cleanBody && signalItem.scopeName && signalItem.scopeName !== "Global") {
+             const fp = matchedMsg.channelIdx !== null && matchedMsg.channelIdx !== undefined
+               ? `CH${matchedMsg.channelIdx}:${cleanBody}`
+               : `DM:${cleanBody}`;
+             putScopeCorrelation(fp, signalItem.scopeName);
+          }
           if (repeaterList.length > 0) {
             matchedMsg.echoes = matchedMsg.echoes || [];
             const pathStr = repeaterList.join(",");
@@ -2189,6 +2214,43 @@ window.closeEditScopeModal = () => {
             (Date.now() - m.timestamp) < 60000
           );
           if (entry) correlateMessageWithRfLog(entry);
+        }
+
+        // Detect Scope
+        if (meshPacket && window.MeshCoreScope) {
+          MeshCoreScope.detectScope(meshPacket).then(scope => {
+            if (scope) {
+              signalItem.scopeName = scope;
+              if (scope !== "Global" && scope.startsWith("#")) {
+                if (typeof MeshCoreScope.addLearnedScope === 'function') {
+                  MeshCoreScope.addLearnedScope(scope);
+                }
+              }
+
+              let matchedEntry = entry;
+              if (!matchedEntry && msgHash !== null && msgHash !== undefined) {
+                matchedEntry = sessionMessageHistory.findLast(m =>
+                  (Number(m.radioHash) === Number(msgHash) || Number(m.ackTag) === Number(msgHash) || Number(m.radioTimestamp) === Number(msgHash)) &&
+                  (Date.now() - m.timestamp) < 60000
+                );
+              }
+
+              if (matchedEntry) {
+                if (!matchedEntry.scopeName || matchedEntry.scopeName === "Global") {
+                  matchedEntry.scopeName = scope;
+                  savePersistedData();
+                  refreshChatMessageHistory();
+                }
+                const cleanBody = (matchedEntry.message || "").replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+                if (cleanBody) {
+                  const fp = matchedEntry.channelIdx !== null && matchedEntry.channelIdx !== undefined
+                    ? `CH${matchedEntry.channelIdx}:${cleanBody}`
+                    : `DM:${cleanBody}`;
+                  putScopeCorrelation(fp, scope);
+                }
+              }
+            }
+          });
         }
 
         // Strategy 2: Match message by decrypted text body (for Channel and Direct Msg)
@@ -2217,6 +2279,28 @@ window.closeEditScopeModal = () => {
                         signalItem.message = cleanMsgText;
                         putAndTrimMap(recentRfLogsByText, cleanMsgText, heardPath);
                         putAndTrimMap(recentRfLogsRawByText, cleanMsgText, rawHex);
+
+                        // Detect Scope and store in correlation map for Strategy 2
+                        if (meshPacket && window.MeshCoreScope) {
+                          MeshCoreScope.detectScope(meshPacket).then(detectedScope => {
+                            if (detectedScope) {
+                              signalItem.scopeName = detectedScope;
+                              putScopeCorrelation(`CH${ch.index}:${cleanMsgText}`, detectedScope);
+
+                              const messageMatch = sessionMessageHistory.findLast(m => {
+                                if ((Date.now() - m.timestamp) > 60000) return false;
+                                const histText = (m.message || "").replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim().toLowerCase();
+                                const targetText = cleanMsgText.toLowerCase();
+                                return histText === targetText || histText.endsWith(targetText) || targetText.endsWith(histText) || histText.includes(targetText) || targetText.includes(histText);
+                              });
+
+                              if (messageMatch) {
+                                messageMatch.scopeName = detectedScope;
+                                correlateMessageWithRfLog(messageMatch);
+                              }
+                            }
+                          });
+                        }
 
                         // Update bestSeenMap entry directly if present
                         const key = nodeId.toUpperCase().trim();

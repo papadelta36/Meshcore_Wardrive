@@ -115,6 +115,9 @@ const MeshCoreScope = {
       const key = await this.calculateKey(scopeName);
       const code = await this.calculateTransportCode(key, packet.payloadType, rawPayload);
       if (code === receivedCode) {
+        if (scopeName && scopeName.startsWith('#')) {
+          this.addLearnedScope(scopeName);
+        }
         return scopeName;
       }
     }

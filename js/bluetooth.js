@@ -370,16 +370,21 @@ class MeshcoreBleManager {
 
     const normalized = MeshCoreScope.normalize(scope);
     const isUnscoped = !normalized || normalized === "" || normalized === "*";
-    if (isUnscoped) return; // Do NOT send 0x36 for unscoped/global messages to prevent rejection on firmware < v1.15
 
-    MeshCoreScope.addLearnedScope(normalized);
-
-    const key = await MeshCoreScope.calculateKey(normalized);
-    const cmd = new Uint8Array(18);
-    cmd[0] = 0x36;
-    cmd[1] = 0x00;
-    cmd.set(key, 2);
-    console.log(`[BLE Scope] Setting Flood Scope -> ${normalized}`);
+    let cmd;
+    if (isUnscoped) {
+      // Force unscoped/global flood scope on radio hardware (exact WardriveService.kt line 588)
+      cmd = new Uint8Array([0x36, 0x01]);
+      console.log(`[BLE Scope] Clearing Flood Scope -> Unscoped (Global)`);
+    } else {
+      MeshCoreScope.addLearnedScope(normalized);
+      const key = await MeshCoreScope.calculateKey(normalized);
+      cmd = new Uint8Array(18);
+      cmd[0] = 0x36;
+      cmd[1] = 0x00;
+      cmd.set(key, 2);
+      console.log(`[BLE Scope] Setting Flood Scope -> ${normalized}`);
+    }
 
     await this.writeBytes(cmd);
     await new Promise(r => setTimeout(r, 100));
