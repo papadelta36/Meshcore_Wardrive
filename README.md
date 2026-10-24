@@ -306,22 +306,26 @@ Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,Hops,PayloadType,RawData
 
 ## 13. 🖥️ Hosting, Installation & PWA Deployment Guide
 
-### Serving the Web App:
+### Deploying directly to GitHub Pages:
+1. Copy or push the contents of this `web_app/` folder to your GitHub repository.
+2. In your GitHub repository, go to **Settings ➔ Pages**.
+3. Under **Build and deployment / Source**, select **Deploy from a branch**.
+4. Select the branch (e.g., `main` or `master`) and folder (`/` root), then click **Save**.
+5. GitHub Pages will automatically publish your app under **HTTPS** at `https://<your-username>.github.io/<repository-name>/`.
+6. **HTTPS Requirement:** Web Bluetooth API **requires** HTTPS or `localhost`. GitHub Pages provides free HTTPS, making it the ideal host for this PWA!
+
+### Local Development Servers:
 
 #### Local Python Webserver:
 ```bash
-cd /path/to/Meshcore_signaal_meter/web_app
 python3 -m http.server 8080
 ```
+Open `http://localhost:8080` in Chrome/Edge.
 
 #### Node.js http-server:
 ```bash
-cd /path/to/Meshcore_signaal_meter/web_app
 npx http-server -p 8080 -c-1
 ```
-
-#### GitHub Pages / Cloudflare Pages / Netlify:
-Deploy the contents of `web_app/` to any static web host under HTTPS. (Note: Web Bluetooth requires an HTTPS origin or `localhost`).
 
 ### Installing as a PWA App:
 1. Open the Web App URL in Google Chrome, Microsoft Edge, or Android Chrome.
@@ -341,6 +345,12 @@ Deploy the contents of `web_app/` to any static web host under HTTPS. (Note: Web
 ### Common Fixes:
 * **Bluetooth Scan list is empty:** Ensure Location Services & Bluetooth are enabled on your device, and that you are using Google Chrome or Microsoft Edge over HTTPS/localhost.
 * **Restoring Contacts after Cache Clear:** Go to System Hub (≡), tap **📖 User Manual & Info**, or use **`📥 Import Contacts (JSON)`** to re-import your `contacts.json` file. Persistent Storage automatically prevents automatic cache clearing once granted.
+
+---
+
+## 15. 📜 License
+
+This project is licensed under the **MIT License**. See the included [LICENSE](file:///home/dominiek/AndroidStudioProjects/Meshcore_signaal_meter/web_app/LICENSE) file for full details.
 
 ---
 
