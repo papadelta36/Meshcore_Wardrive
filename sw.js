@@ -1,5 +1,5 @@
-const BUILD_TIMESTAMP = '20260330_180000';
-const CACHE_NAME = 'meshcore-wardrive-v1.08-' + BUILD_TIMESTAMP;
+const BUILD_TIMESTAMP = '20260330_184500';
+const CACHE_NAME = 'meshcore-wardrive-v1.11-' + BUILD_TIMESTAMP;
 const TILE_CACHE_NAME = 'meshcore-map-tiles-v2';
 
 const ASSETS_TO_CACHE = [

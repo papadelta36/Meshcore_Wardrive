@@ -260,7 +260,7 @@ window.hardResetAppCache = async () => {
   // Offline Safety Check
   const online = await window.checkWebserverConnectivity();
   if (!online) {
-    alert("⚠️ Hard Reset Geblokkeerd!\n\nJe bent momenteel OFFLINE of de webserver is niet bereikbaar.\n\nDe reset-knop is uitgeschakeld om te voorkomen dat je offline PWA-cache en gegevens verloren gaan.");
+    alert("⚠️ Hard Reset Blocked!\n\nYou are currently OFFLINE or the webserver is unreachable.\n\nThe reset button is disabled to prevent losing your offline PWA cache and data.");
     return;
   }
 
@@ -1475,9 +1475,9 @@ window.closeEditScopeModal = () => {
             gpsStatus.className = "status-text status-on";
           }
 
-          // Wardrive Trail Polyline (Green line following car GPS position in real-time)
+          // Wardrive Trail Polyline (60 FPS animated tip following car GPS position in real-time)
           if (isWardriveActive) {
-            if (wardriveTrackPoints.length === 0 || distMovedMeters > 1.0) {
+            if (wardriveTrackPoints.length === 0) {
               wardriveTrackPoints.push([lng, lat]);
               updateWardriveTrackLayer();
             }
@@ -1546,11 +1546,22 @@ window.closeEditScopeModal = () => {
     return [lng, lat]; // ALWAYS returns [lng, lat] for MapLibre GL
   }
 
-  function updateWardriveTrackLayer() {
+  function updateWardriveTrackLayer(activeAnimatedTip = null) {
     if (!map || !map.getSource('wardrive-track-src')) return;
     const normalizedPoints = wardriveTrackPoints
       .map(p => normalizeLngLat(p))
       .filter(p => p !== null);
+
+    if (activeAnimatedTip) {
+      const tip = normalizeLngLat(activeAnimatedTip);
+      if (tip) {
+        // Prevent duplicate tip if identical to last stored point
+        const last = normalizedPoints.length > 0 ? normalizedPoints[normalizedPoints.length - 1] : null;
+        if (!last || Math.abs(last[0] - tip[0]) > 0.000001 || Math.abs(last[1] - tip[1]) > 0.000001) {
+          normalizedPoints.push(tip);
+        }
+      }
+    }
 
     const features = [];
     if (normalizedPoints.length >= 2) {
@@ -1604,6 +1615,18 @@ window.closeEditScopeModal = () => {
       startLat = pos.lat;
     }
 
+    // Lock in the start position to the stored track history if wardriving is active
+    if (typeof isWardriveActive !== 'undefined' && isWardriveActive) {
+      if (wardriveTrackPoints.length > 0) {
+        const last = wardriveTrackPoints[wardriveTrackPoints.length - 1];
+        if (Math.abs(last[0] - startLng) > 0.000001 || Math.abs(last[1] - startLat) > 0.000001) {
+          wardriveTrackPoints.push([startLng, startLat]);
+        }
+      } else {
+        wardriveTrackPoints.push([startLng, startLat]);
+      }
+    }
+
     carAnimationStart = { lat: startLat, lng: startLng };
     carAnimationTarget = { lat: targetLat, lng: targetLng };
     carAnimationStartTime = now;
@@ -1628,6 +1651,11 @@ window.closeEditScopeModal = () => {
           .addTo(map);
       } else {
         carMarker.setLngLat([curLng, curLat]);
+      }
+
+      // Update trace line tip frame-by-frame (60 FPS synchronized trail)
+      if (typeof isWardriveActive !== 'undefined' && isWardriveActive) {
+        updateWardriveTrackLayer([curLng, curLat]);
       }
 
       if (frac < 1.0) {
@@ -2412,8 +2440,8 @@ window.closeEditScopeModal = () => {
           }
         }
 
-        // Add to Graph
-        if (signalGraphRenderer) {
+        // Add to Graph (Filter out local 0-hop DIRECT RF logs from discover transmissions)
+        if (signalGraphRenderer && nodeId !== "DIRECT" && nodeId !== "UNKNOWN" && !nodeId.startsWith("CH")) {
           const nodeObj = Array.from(locatedNodes.values()).find(n => n.id.toUpperCase() === nodeId.toUpperCase());
           const name = nodeObj && nodeObj.name ? nodeObj.name : nodeId;
           signalGraphRenderer.addValue(nodeId, name, rssi);
@@ -6684,7 +6712,7 @@ window.closeEditScopeModal = () => {
       if (syncedChannels.length === 0) {
         listEl.innerHTML = `
           <div style="color:#AAA; font-size:0.8rem; text-align:center; padding:15px; background:#121212; border-radius:6px;">
-            📡 Geen kanalen gesynchroniseerd van node.<br>Verbind een Bluetooth LE compagnon-node.
+            📡 No channels synced from node.<br>Connect a Bluetooth LE companion node.
           </div>
         `;
         return;

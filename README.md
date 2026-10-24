@@ -1,14 +1,14 @@
-# 🌐 Meshcore Signaal Meter & Wardrive Web App (PWA v1.01)
+# 🌐 Meshcore Signaal Meter & Wardrive Web App (PWA v1.11)
 
 ```
        ========================================================================
-       📡 MESHCORE SIGNAAL METER & WARDRIVE WEB APP - VERSION 1.01
+       📡 MESHCORE SIGNAAL METER & WARDRIVE WEB APP - VERSION 1.11
        Progressive Web App (PWA) | Web Bluetooth (BLE) | MapLibre GL Vector Engine
        Designed & Developed by Papa Delta & Gemini | Contact: papadelta.rry36@gmail.com
        ========================================================================
 ```
 
-Welcome to the comprehensive technical documentation and user guide for **Meshcore Signaal Meter & Wardrive Web (PWA v1.01)**.
+Welcome to the comprehensive technical documentation and user guide for **Meshcore Signaal Meter & Wardrive Web (PWA v1.11)**.
 
 This is a **100% client-side, zero-dependency Progressive Web Application (PWA)** built using vanilla HTML5, CSS3, ES6 JavaScript, and MapLibre GL JS. It communicates directly with **Meshcore LoRa companion radio nodes** (Heltec V3, T-Beam, RAK, etc.) over **Web Bluetooth (BLE)** to provide real-time signal analysis, 100% unfiltered CSV wardrive logging, tactical CRT radar, coverage mapping, repeater trilateration, and encrypted mesh messaging.
 
@@ -16,7 +16,7 @@ This is a **100% client-side, zero-dependency Progressive Web Application (PWA)*
 
 ## 📋 Table of Contents
 1. [Overview & Application Purpose](#1-overview--application-purpose)
-2. [Version Specifications & Changelog (v1.01)](#2-version-specifications--changelog-v101)
+2. [Version Specifications & Cumulative Changelog (v1.11)](#2-version-specifications--cumulative-changelog-v111)
 3. [Architecture & Technology Stack](#3-architecture--technology-stack)
 4. [PWA Service Worker, Caching & Persistent Storage](#4-pwa-service-worker-caching--persistent-storage)
 5. [Web Bluetooth (BLE) Handshake & Radio Sync Protocol](#5-web-bluetooth-ble-handshake--radio-sync-protocol)
@@ -46,37 +46,41 @@ The **Meshcore Signaal Meter & Wardrive Web App** allows field operators, radio 
 
 ---
 
-## 2. 🏷️ Version Specifications & Changelog (v1.01)
+## 2. 🏷️ Version Specifications & Cumulative Changelog (v1.11)
 
-* **Version Number:** `v1.01` (Build Timestamp: `20260330`)
+* **Version Number:** `v1.11` (Build Timestamp: `20260330`)
 * **Protocol Compatibility:** MeshCore Companion Protocol v1.12+ / V3 Firmware
 
-### Detailed Changelog for v1.01:
-1. **User-Controlled Fullscreen Toggle:**
-   - Removed forced auto-fullscreen on first user interaction.
-   - Added manual `⛶` button in top bar giving users full freedom to operate in Fullscreen or Standard Windowed mode.
-   - Single Page App (SPA) modals (Trips Manager, Filter Hub, Messenger, Settings) remain consistently in Fullscreen when enabled.
-2. **Persistent Storage Protection (`navigator.storage.persist()`):**
-   - Automatically requests Persistent Storage on startup to protect saved trips, contacts (`meshcore_located_nodes`), and chat history against automatic browser cache clearing.
-3. **CSV Export/Import Parity & Android Compatibility:**
-   - Enforced standard 9-column CSV format: `Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,Hops,PayloadType,RawData`.
-   - Cleaned commas from timestamps on export to prevent column-shifting errors during import.
-   - Implemented quote-aware CSV line parser in `importTripFromCsv()`.
-   - Enforced `mesh_log_` file prefix (e.g., `mesh_log_20260330_123456.csv`) on all exports for 100% mutual compatibility with the native Kotlin Android app.
-   - Preserved `PayloadType` and `rawHex` across CSV export, import, and Signal Deep Dive.
-4. **Dashboard Layout & High-Visibility Speed:**
-   - Enlarged KM/H font size to `1.85rem` with `monospace` typography, supporting 3-digit speed values (`120`, `199`, `250`) without truncation.
-   - Centered Speed and Compass containers vertically relative to the central Radar window.
-   - Aligned `TIME (1m)` and `DIST (100m)` Auto-Discover progress bars on the exact same horizontal baseline at the bottom of the dashboard card.
-5. **Vehicle Position Marker & Map Cleanliness:**
-   - Removed the directional arrow indicator and rotational CSS transforms from `updateCarMarker`.
-   - Replaced with a clean, high-visibility cyan glowing position dot (`.car-dot-core`).
-6. **In-App Map Alerts & Notification Refinement:**
-   - Added active tab scoping (`activeNavTab === 'map'`) to `showMessageOverlay()`.
-   - Incoming message banner overlays trigger exclusively when viewing the main Map UI (`[MAP]` tab) and remain quiet while actively chatting in Messenger (`[CHAT]` tab).
-   - Removed overbearing OS system-drawer notifications to prevent duplicate sounds and notification shade clutter while driving.
-7. **Expanded Region Scope Engine:**
-   - Pre-populated `learnedScopes` in `scope.js` with an extensive list of Benelux and European region scopes (`#be`, `#nl`, `#vlaanderen`, `#public`, `#antwerpen`, `#limburg`, `#brabant`, `#zeeland`, `#utrecht`, etc.) for automatic scope badge decoding (`[#vlaanderen]`, `[#be]`, `[#nl]`) in Messenger.
+### Cumulative Changelog from v1.01 to v1.11:
+
+1. **Region Scope Engine & Incoming Message Alignment (Native Parity):**
+   - Implemented `incomingScopeCorrelation` map to correlate message fingerprints (`CH<idx>:<text>` or `DM:<text>`) with detected regional flood scopes over 60-second windows (100% matching Kotlin `WardriveService.kt`).
+   - Resolved asynchronous race conditions in `MeshCoreScope.detectScope()` when processing over-the-air `0x88` RF logs and `0x05` channel messages.
+   - Enforced automatic scope learning (`MeshCoreScope.addLearnedScope()`) upon receiving new regional scopes over BLE/RF.
+   - Fixed `ChannelInfo` (0x12) scope normalization in `protocol.js` so unscoped channels (`"*"`) cleanly evaluate to `null` rather than `"#*"`.
+
+2. **60 FPS Synchronized Dynamic GPS Trace Line:**
+   - Upgraded `updateWardriveTrackLayer()` and `updateCarMarker()` to render a frame-by-frame 60 FPS animated tip (`activeAnimatedTip`).
+   - The green Wardrive track polyline now grows smoothly in real-time directly underneath the GPS car marker icon with zero overhang, zero lag, and zero jitter.
+
+3. **OGC KML 2.2 Export Coordinate Order Fix:**
+   - Corrected coordinate export formatting in `exportKml()` to `${pt[0]},${pt[1]},0` (`longitude,latitude,altitude`) according to the official OGC KML 2.2 specification for Google Earth & QGIS compatibility.
+
+4. **Unscoped Direct Message & Flood Scope Reset:**
+   - Updated `ensureFloodScope(scope)` in `bluetooth.js` to unconditionally send `0x36 0x01` (force unscoped/Global) whenever sending a message without a scope.
+   - Applied `ensureFloodScope()` unconditionally in `sendDirectMessage()`, preventing radio companion hardware from retaining stale channel scopes on private 1-on-1 DMs.
+
+5. **Local Discover Transmission Filtering:**
+   - Added `nodeId !== "DIRECT"` filter to `mapSignalPoints` and `signalGraphRenderer.addValue()` (matching `MainActivity.kt` line 6049).
+   - Local 0-hop discover transmission RF logs generated by the node's own antenna are excluded from map dots and RSSI graph lines.
+
+6. **Full English Localization & UI Polish:**
+   - Translated all remaining Dutch UI strings, placeholders, radar back buttons, and hard-reset alerts to English.
+   - Synchronized all HTML version badges and title banners to `v1.11`.
+
+7. **Code Deduplication & Event Debouncing:**
+   - Unified Haversine distance calculations into `window.calculateDistanceKm()`.
+   - Debounced `visualViewport` resize listener to prevent scroll animation frame stacking when the mobile soft keyboard opens or closes.
 
 ---
 
@@ -87,8 +91,8 @@ The application uses an event-driven, modular JavaScript architecture:
 ```
  web_app/
  ├── index.html            # Main Single-Page HTML Document & Modals
- ├── manifest.json         # PWA Web Manifest (v1.01)
- ├── sw.js                 # PWA Service Worker (Offline Cache & PWA engine)
+ ├── manifest.json         # PWA Web Manifest (v1.11)
+ ├── sw.js                 # PWA Service Worker (Offline Cache & PWA engine v1.11)
  ├── css/
  │   └── style.css         # Tactical Dark Theme, Dashboard & Driving CSS
  ├── js/
@@ -173,7 +177,7 @@ The Dashboard header provides real-time situational awareness:
   * `[✓] Filter`: Toggles active filter rules live on screen.
   * `Auto`: Toggles automatic discovery requests during drives.
   * `TRIPS`: Opens the Trips & Logs Manager.
-  * `⚡ v1.01`: Hard-resets application cache and reloads latest scripts.
+  * `⚡ v1.11`: Hard-resets application cache and reloads latest scripts.
   * `⛶`: Toggles Fullscreen Mode on or off.
   * `≡`: Opens System Hub & Settings.
 
@@ -189,7 +193,7 @@ The map view uses MapLibre GL JS for GPU-accelerated vector rendering:
 * **Cyan Repeater Markers (`#repeaters-layer`):** Interactive cyan tower icons indicating located mesh repeaters.
 
 ### Vehicle Position Dot (`.car-dot-core`)
-The car position marker is rendered as a clean, glowing cyaan circle with a white border and 12px cyaan shadow (`box-shadow: 0 0 12px rgba(0, 229, 255, 0.9)`). It uses a 1000ms position animation loop (`requestAnimationFrame`) for smooth movement across GPS updates.
+The car position marker is rendered as a clean, glowing cyaan circle with a white border and 12px cyaan shadow (`box-shadow: 0 0 12px rgba(0, 229, 255, 0.9)`). It uses a 60 FPS position animation loop (`requestAnimationFrame`) for smooth movement across GPS updates.
 
 ### Tactical CRT Radar Canvas
 The radar component ([radar.js](file:///home/dominiek/AndroidStudioProjects/Meshcore_signaal_meter/web_app/js/radar.js)) renders a 1:1 compass-oriented radar display:
@@ -340,4 +344,4 @@ Deploy the contents of `web_app/` to any static web host under HTTPS. (Note: Web
 
 ---
 
-*Meshcore Signaal Meter & Wardrive Web v1.01 — Designed & Developed by Papa Delta & Gemini.*
+*Meshcore Signaal Meter & Wardrive Web v1.11 — Designed & Developed by Papa Delta & Gemini.*
