@@ -216,25 +216,13 @@ const ProtocolDecoder = {
         // Fallback if WebCrypto throws
       }
 
+      if (!hmacMatch) return null;
+
       // 2. Decrypt AES-128-ECB
       const key16 = new Uint8Array(16);
       key16.set(key32.subarray(0, 16));
 
-      const decrypted = this.decryptAES128ECB(key16, cipherText);
-      if (!decrypted) return null;
-
-      if (hmacMatch) return decrypted;
-
-      // Fallback check: Verify if decrypted content contains valid printable text / Smaz
-      try {
-        const textBytes = decrypted.length >= 5 ? decrypted.slice(5) : decrypted;
-        const textDec = ProtocolDecoder.tryDecodePrefixed(textBytes);
-        if (ProtocolDecoder.isPrintable(textDec)) {
-          return decrypted;
-        }
-      } catch (e) {}
-
-      return null;
+      return this.decryptAES128ECB(key16, cipherText);
     },
 
     decryptAES128ECB(key16, cipherText) {
@@ -476,8 +464,8 @@ const ProtocolDecoder = {
       };
     }
 
-    // 2. BATTERY_STATUS (0x0C = 12 OR 0x16 0x01 / 0x16 0x0C)
-    if (code === 0x0C || code === 12 || (code === 0x16 && data.length >= 4 && (data[1] === 0x01 || data[1] === 0x0C))) {
+    // 2. BATTERY_STATUS (0x0C OR 0x16 0x01 / 0x16 0x0C)
+    if (code === 0x0C || (code === 0x16 && data.length >= 4 && (data[1] === 0x01 || data[1] === 0x0C))) {
       const offset = (code === 0x16) ? 2 : 1;
       if (data.length >= offset + 2) {
         const mv = (data[offset] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);

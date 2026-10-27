@@ -194,23 +194,6 @@ let activeChannelIndex = 0;
 let activeDirectNodeId = null;
 let activeDirectNodeName = null;
 
-// --- Global Fullscreen Toggle Function ---
-window.toggleAppFullscreen = () => {
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    const el = document.documentElement;
-    if (el.requestFullscreen) {
-      el.requestFullscreen();
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
-    }
-  } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) {
-    }
-  }
-};
-
 // --- Webserver Offline Safety Guard & Hard Reset Manager ---
 let isWebserverReachable = true;
 
@@ -381,10 +364,26 @@ window.closeChannelVisibilityModal = () => {
   if (el) el.classList.remove('active');
 };
 window.openAutoReplyModal = () => {
+  const chkAuto = document.getElementById('chkAutoReply');
+  const txtAutoMsg = document.getElementById('txtAutoReplyMessage');
+  if (chkAuto) {
+    chkAuto.checked = localStorage.getItem('auto_reply_enabled') === 'true';
+  }
+  if (txtAutoMsg) {
+    txtAutoMsg.value = localStorage.getItem('auto_reply_message') || "🚗 Meshcore Wardrive Active - Auto-Reply";
+  }
   const el = document.getElementById('modalAutoReply');
   if (el) el.classList.add('active');
 };
 window.closeAutoReplyModal = () => {
+  const chkAuto = document.getElementById('chkAutoReply');
+  const txtAutoMsg = document.getElementById('txtAutoReplyMessage');
+  if (chkAuto) {
+    localStorage.setItem('auto_reply_enabled', chkAuto.checked ? 'true' : 'false');
+  }
+  if (txtAutoMsg) {
+    localStorage.setItem('auto_reply_message', txtAutoMsg.value.trim());
+  }
   const el = document.getElementById('modalAutoReply');
   if (el) el.classList.remove('active');
 };
@@ -400,8 +399,14 @@ window.closeQuickRepliesModal = () => {
   if (el) el.classList.remove('active');
 };
 window.openEditScopeModal = () => {
+  window.editingScopeChannelIdx = activeChannelIndex;
   if (typeof window.populateScopeEditInput === 'function') {
     window.populateScopeEditInput();
+  }
+  const ch = syncedChannels.find(c => c.index === activeChannelIndex);
+  const modalHeader = document.querySelector('#modalEditScope .modal-header h2');
+  if (modalHeader && ch) {
+    modalHeader.innerText = `🌐 Edit Region Scope (CH${ch.index}: ${ch.name})`;
   }
   const el = document.getElementById('modalEditScope');
   if (el) el.classList.add('active');
@@ -421,6 +426,7 @@ window.openEditScopeForChannel = (chIndex) => {
   if (el) el.classList.add('active');
 };
 window.closeEditScopeModal = () => {
+  window.editingScopeChannelIdx = null;
   const el = document.getElementById('modalEditScope');
   if (el) el.classList.remove('active');
 };
@@ -1401,6 +1407,10 @@ window.closeEditScopeModal = () => {
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => {
+          if (pos.coords && pos.coords.accuracy > 25) {
+            console.log(`[GPS] Skipped low-accuracy fix (${pos.coords.accuracy}m > 25m)`);
+            return;
+          }
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           const rawMps = pos.coords.speed;
@@ -1615,15 +1625,18 @@ window.closeEditScopeModal = () => {
       startLat = pos.lat;
     }
 
-    // Lock in the start position to the stored track history if wardriving is active
-    if (typeof isWardriveActive !== 'undefined' && isWardriveActive) {
+    // Lock in true GPS coordinates to track history if wardriving is active (5m threshold)
+    if (typeof isWardriveActive !== 'undefined' && isWardriveActive && targetLat && targetLng) {
       if (wardriveTrackPoints.length > 0) {
         const last = wardriveTrackPoints[wardriveTrackPoints.length - 1];
-        if (Math.abs(last[0] - startLng) > 0.000001 || Math.abs(last[1] - startLat) > 0.000001) {
-          wardriveTrackPoints.push([startLng, startLat]);
+        const distKm = calculateDistanceKm(last[1], last[0], targetLat, targetLng);
+        if (distKm >= 0.005) { // 5 meters threshold
+          wardriveTrackPoints.push([targetLng, targetLat]);
+          updateWardriveTrackLayer();
         }
       } else {
-        wardriveTrackPoints.push([startLng, startLat]);
+        wardriveTrackPoints.push([targetLng, targetLat]);
+        updateWardriveTrackLayer();
       }
     }
 
@@ -1831,7 +1844,9 @@ window.closeEditScopeModal = () => {
         // Trigger battery request & channel/contact sync upon identity lock (exact WardriveService.kt line 1366)
         if (!bleManager.isSyncStarted) {
           bleManager.isSyncStarted = true;
-          syncedChannels.length = 0; // Clear channels before syncing from BLE radio node
+          // Preserve Public Channel 0 as default base before syncing from radio node
+          syncedChannels.length = 0;
+          syncedChannels.push({ index: 0, name: "Public", psk: DEFAULT_PUBLIC_PSK, scope: null, isVisible: true });
           setTimeout(() => {
             bleManager.requestBatteryStatus();
             bleManager.fetchCompanionChannels();
@@ -2103,6 +2118,13 @@ window.closeEditScopeModal = () => {
 
         // Always show Message Overlay on main screen when message arrives
         showMessageOverlay(entry.senderId, frame.text, frame.hopCount, entry.scopeName);
+
+        // Auto-Reply Bot Trigger
+        try {
+          handleAutoReplyBot(entry.senderId, frame.text, entry.channelIdx, frame.isDM);
+        } catch (e) {
+          console.error("AutoReplyBot trigger error:", e);
+        }
 
         updateMessengerUnreadBadge();
         refreshChatMessageHistory();
@@ -2491,9 +2513,11 @@ window.closeEditScopeModal = () => {
     const clean1 = id1.toString().toUpperCase().trim();
     const clean2 = id2.toString().toUpperCase().trim();
     if (clean1 === clean2) return true;
+    if (clean1.length < 4 || clean2.length < 4) return false;
+    if (!/^[0-9A-F]{4,}$/i.test(clean1) || !/^[0-9A-F]{4,}$/i.test(clean2)) return false;
     const short1 = clean1.substring(0, 4);
     const short2 = clean2.substring(0, 4);
-    return short1.length === 4 && short1 === short2;
+    return short1 === short2;
   }
 
   function markMessageStatus(ackTag, statusText, radioHash = null) {
@@ -4806,6 +4830,9 @@ window.closeEditScopeModal = () => {
     activeSpotlightCenter = null;
     activeSpotlightRadiusMeters = 0;
     if (spotlightCanvasOverlay) spotlightCanvasOverlay.style.display = 'none';
+    if (map && typeof updateRadialSpotlightCanvas === 'function') {
+      try { map.off('render', updateRadialSpotlightCanvas); } catch (e) {}
+    }
 
     // Disable Range Spotlight & Trajectory View modes & re-render background trip signal dots & track line
     isRangeSpotlightActive = false;
@@ -5727,7 +5754,17 @@ window.closeEditScopeModal = () => {
       // 3. Clear unreads for currently active target (exact 1:1 match with MainActivity.kt lines 7645 & 7710)
       const targetKey = activeDirectNodeId !== null ? `DM:${activeDirectNodeId}` : `CH:${activeChannelIndex}`;
       unreadCounts.delete(targetKey);
-      if (activeDirectNodeId !== null) unreadCounts.delete(activeDirectNodeId);
+      if (activeDirectNodeId !== null) {
+        unreadCounts.delete(activeDirectNodeId);
+        for (const k of unreadCounts.keys()) {
+          if (k.startsWith('DM:')) {
+            const idPart = k.substring(3);
+            if (isSameNodeId(idPart, activeDirectNodeId)) {
+              unreadCounts.delete(k);
+            }
+          }
+        }
+      }
       saveUnreadCountsToStorage();
 
       if (sessionMessageHistory && Array.isArray(sessionMessageHistory)) {
@@ -6751,34 +6788,61 @@ window.closeEditScopeModal = () => {
     btnMessengerSettings.onclick = () => window.openMessengerSettingsModal();
   }
 
-  // Auto-Reply Bot Handler
-  function handleAutoReplyBot(incomingSenderId, incomingText, channelIdx) {
+  // Auto-Reply Bot Handler & Rate Limiter Map
+  const lastAutoReplyTimes = new Map();
+
+  function handleAutoReplyBot(incomingSenderId, incomingText, channelIdx, isDM = false) {
     const chkAuto = document.getElementById('chkAutoReply');
     const txtAutoMsg = document.getElementById('txtAutoReplyMessage');
-    if (!chkAuto || !chkAuto.checked) return;
 
-    const replyMsg = txtAutoMsg ? txtAutoMsg.value.trim() : "🚗 Meshcore Wardrive Active - Auto-Reply";
+    const isEnabled = localStorage.getItem('auto_reply_enabled') === 'true' || (chkAuto && chkAuto.checked);
+    if (!isEnabled) return;
+
+    // Only auto-reply to Direct Messages (DM) - never to channel messages (exact WardriveService.kt line 1849)
+    const isChannelMsg = (channelIdx !== undefined && channelIdx !== null) || (incomingText && incomingText.startsWith('['));
+    if (isChannelMsg || !isDM) return;
+
+    const replyMsg = (txtAutoMsg && txtAutoMsg.value.trim()) ?
+                     txtAutoMsg.value.trim() :
+                     (localStorage.getItem('auto_reply_message') || "🚗 Meshcore Wardrive Active - Auto-Reply");
+
+    if (!replyMsg) return;
+
+    const now = Date.now();
+    const lastReply = lastAutoReplyTimes.get(incomingSenderId) || 0;
+    if (now - lastReply < 300000) { // 5 minutes rate limit per sender
+      console.log(`[AutoReplyBot] Cooldown active for ${incomingSenderId} (last reply was ${Math.round((now - lastReply)/1000)}s ago)`);
+      return;
+    }
+
+    lastAutoReplyTimes.set(incomingSenderId, now);
 
     setTimeout(() => {
-      console.log(`Auto-Reply Bot sending response to ${incomingSenderId}: "${replyMsg}"`);
+      console.log(`[AutoReplyBot] Triggering auto-reply to ${incomingSenderId}: "${replyMsg}"`);
+      const ackTag = Math.floor(Date.now() / 1000);
       const autoEntry = {
         senderId: "Self (Bot)",
+        recipientId: incomingSenderId,
         message: replyMsg,
         hopCount: 0,
         timestamp: Date.now(),
-        channelIdx: channelIdx,
-        isOutgoing: true
+        channelIdx: null,
+        isOutgoing: true,
+        status: 1,
+        ackTag: ackTag,
+        statusText: "☁️ Sent"
       };
       sessionMessageHistory.push(autoEntry);
       savePersistedData();
       refreshChatMessageHistory();
 
       if (bleManager && bleManager.isConnected) {
-        if (channelIdx !== undefined && channelIdx !== null) {
-          bleManager.sendChannelMessage(channelIdx, replyMsg);
-        } else {
-          bleManager.sendDirectMessage(incomingSenderId, replyMsg);
-        }
+        bleManager.sendDirectMessage(incomingSenderId, replyMsg, null, ackTag).then(() => {
+          markMessageStatus(ackTag, "✅ Delivered");
+        }).catch(err => {
+          console.error("[AutoReplyBot] BLE send error:", err);
+          markMessageStatus(ackTag, "❌ Failed");
+        });
       }
     }, 1000);
   }
@@ -7357,9 +7421,18 @@ window.closeEditScopeModal = () => {
     if (cbFocus) cbFocus.checked = false;
 
     if (trip.trackPoints && Array.isArray(trip.trackPoints)) {
-      wardriveTrackPoints = trip.trackPoints
-        .map(p => normalizeLngLat(p))
-        .filter(p => p !== null);
+      let lastLat = null, lastLng = null;
+      wardriveTrackPoints = [];
+      trip.trackPoints.forEach(p => {
+        const coords = normalizeLngLat(p);
+        if (coords) {
+          if (lastLat === null || calculateDistanceKm(lastLat, lastLng, coords[1], coords[0]) >= 0.005) {
+            wardriveTrackPoints.push(coords);
+            lastLat = coords[1];
+            lastLng = coords[0];
+          }
+        }
+      });
     }
 
     if (trip.logs && Array.isArray(trip.logs)) {
@@ -7372,7 +7445,13 @@ window.closeEditScopeModal = () => {
         const normLng = coords ? coords[0] : (parseFloat(rawItem.lng) || 0);
         const item = { ...rawItem, lat: normLat, lng: normLng };
         allReceivedLogs.push(item);
-        if (item.nodeId) bestSeenMap.set(item.nodeId.toUpperCase(), item);
+        if (item.nodeId) {
+          const k = item.nodeId.toUpperCase();
+          const existing = bestSeenMap.get(k);
+          if (!existing || (item.snr !== undefined && item.snr >= existing.snr)) {
+            bestSeenMap.set(k, item);
+          }
+        }
         if (normLat !== 0 && normLng !== 0) mapSignalPoints.push(item);
       });
     }
@@ -7443,25 +7522,46 @@ window.closeEditScopeModal = () => {
   };
 
   window.exportTripCsv = (tripId) => {
+    let trip = null;
     const raw = localStorage.getItem('saved_trips');
-    if (!raw) return;
-    const trips = JSON.parse(raw);
-    const trip = trips.find(t => t.id === tripId);
-    if (!trip || !trip.logs || trip.logs.length === 0) {
+    if (raw) {
+      try {
+        const trips = JSON.parse(raw);
+        trip = trips.find(t => t.id === tripId);
+      } catch (e) {}
+    }
+    if (!trip && window.inMemoryTrips && Array.isArray(window.inMemoryTrips)) {
+      trip = window.inMemoryTrips.find(t => t.id === tripId);
+    }
+    if (!trip) {
       alert("No log data available in this trip.");
       return;
     }
 
     let csv = "Timestamp,Latitude,Longitude,NodeID,SNR,RSSI,Hops,PayloadType,RawData\n";
-    trip.logs.forEach(item => {
-      const cleanTime = (item.time || '').replace(/,/g, ' ');
-      let typeStr = '';
-      const pType = item.payloadType !== undefined && item.payloadType !== null ? item.payloadType : (item.meshPacket ? item.meshPacket.payloadType : null);
-      if (pType !== null && pType !== undefined) {
-        typeStr = typeof pType === 'number' ? `0x${pType.toString(16).padStart(2, '0').toUpperCase()}` : String(pType);
-      }
-      csv += `${cleanTime},${item.lat || ''},${item.lng || ''},${item.nodeId || ''},${item.snr || 0},${item.rssi || 0},${item.hops || 0},${typeStr},${item.rawHex || ''}\n`;
-    });
+    const defaultTime = trip.timestamp ? new Date(trip.timestamp).toISOString().replace('T', ' ').substring(0, 19) : '';
+
+    if (trip.logs && Array.isArray(trip.logs)) {
+      trip.logs.forEach(item => {
+        const cleanTime = (item.time || defaultTime).replace(/,/g, ' ');
+        let typeStr = '';
+        const pType = item.payloadType !== undefined && item.payloadType !== null ? item.payloadType : (item.meshPacket ? item.meshPacket.payloadType : null);
+        if (pType !== null && pType !== undefined) {
+          typeStr = typeof pType === 'number' ? `0x${pType.toString(16).padStart(2, '0').toUpperCase()}` : String(pType);
+        }
+        csv += `${cleanTime},${item.lat || ''},${item.lng || ''},${item.nodeId || ''},${item.snr || 0},${item.rssi || 0},${item.hops || 0},${typeStr},${item.rawHex || ''}\n`;
+      });
+    }
+
+    if (trip.trackPoints && Array.isArray(trip.trackPoints)) {
+      trip.trackPoints.forEach(pt => {
+        const coords = normalizeLngLat(pt);
+        if (coords) {
+          csv += `${defaultTime},${coords[1]},${coords[0]},TRAIL,0,0,-1,,\n`;
+        }
+      });
+    }
+
     let rawName = (trip.name || 'trip').replace(/^📂\s*/, '').trim();
     let safeName = rawName.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+/, '');
     if (!safeName.startsWith('mesh_log_')) {
@@ -7565,22 +7665,39 @@ window.closeEditScopeModal = () => {
         return;
       }
 
-      if (fileName.toLowerCase().endsWith('.json')) {
+      const trimmed = content.trim();
+
+      // 1. Content Detection: JSON
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
-          const json = JSON.parse(content);
-          if (json.logs || json.allReceivedLogs) {
+          const json = JSON.parse(trimmed);
+          if (json.logs || json.allReceivedLogs || json.wardriveTrackPoints || json.trackPoints) {
             importSessionJsonData(json, fileName);
+            return;
+          } else if (json.contacts || json.nodes || json.located_nodes || json.locatedNodesList || (Array.isArray(json) && json.length > 0 && (json[0].pubKey || json[0].publicKey || json[0].id || json[0].nodeId))) {
+            if (typeof window.importContactsFromJson === 'function') {
+              window.importContactsFromJson(json);
+            } else {
+              showToastMessage("ℹ️ File recognized as Contacts JSON. Import via Contacts tab.");
+            }
+            return;
           } else {
-            showToastMessage("⚠️ Invalid JSON session format.");
+            showToastMessage("⚠️ Invalid JSON format: missing session logs or track points.");
+            return;
           }
         } catch (err) {
-          showToastMessage("⚠️ Failed to parse JSON file.");
+          // Fall through if JSON parsing failed
         }
-      } else if (fileName.toLowerCase().endsWith('.csv')) {
-        importTripFromCsv(content, fileName);
-      } else if (fileName.toLowerCase().endsWith('.kml')) {
-        showToastMessage("ℹ️ KML tracks are best imported as CSV logs for full signal telemetry.");
       }
+
+      // 2. Content Detection: KML
+      if (trimmed.toLowerCase().includes('<kml') || (trimmed.toLowerCase().includes('<?xml') && trimmed.toLowerCase().includes('kml'))) {
+        showToastMessage("ℹ️ KML tracks are best imported as CSV logs for full signal telemetry.");
+        return;
+      }
+
+      // 3. Content Detection: CSV / Delimited Text (Fallback for any .csv, .txt, .log, .csv.txt, etc.)
+      importTripFromCsv(content, fileName);
     };
 
     reader.readAsText(file);
@@ -7624,7 +7741,7 @@ window.closeEditScopeModal = () => {
     });
 
     const logs = [];
-    const trackPoints = [];
+    const trailPoints = [];
     let prevLat = null, prevLng = null;
     let totalDist = 0;
 
@@ -7697,21 +7814,30 @@ window.closeEditScopeModal = () => {
         }
       }
 
-      if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) continue;
+      if (isNaN(lat)) lat = 0;
+      if (isNaN(lng)) lng = 0;
 
-      const normCoords = normalizeLngLat({ lat, lng });
-      const normLat = normCoords ? normCoords[1] : lat;
-      const normLng = normCoords ? normCoords[0] : lng;
+      if (lat !== 0 || lng !== 0) {
+        const normCoords = normalizeLngLat({ lat, lng });
+        const normLat = normCoords ? normCoords[1] : lat;
+        const normLng = normCoords ? normCoords[0] : lng;
 
-      if (prevLat !== null && prevLng !== null) {
-        totalDist += calculateDistanceKm(prevLat, prevLng, normLat, normLng);
+        if (prevLat !== null && prevLng !== null) {
+          totalDist += calculateDistanceKm(prevLat, prevLng, normLat, normLng);
+        }
+        prevLat = normLat;
+        prevLng = normLng;
+
+        if (nodeId && nodeId.toUpperCase() === 'TRAIL') {
+          trailPoints.push([normLng, normLat]);
+        }
       }
-      prevLat = normLat;
-      prevLng = normLng;
-
-      trackPoints.push([normLng, normLat]);
 
       if (nodeId && nodeId.toUpperCase() !== 'TRAIL') {
+        const normCoords = (lat !== 0 || lng !== 0) ? normalizeLngLat({ lat, lng }) : null;
+        const normLat = normCoords ? normCoords[1] : lat;
+        const normLng = normCoords ? normCoords[0] : lng;
+
         let meshPacket = null;
         if (rawHex && typeof ProtocolDecoder !== 'undefined') {
           meshPacket = ProtocolDecoder.decodeRawHex(rawHex);
@@ -7723,6 +7849,7 @@ window.closeEditScopeModal = () => {
           nodeId: nodeId.toUpperCase(),
           snr,
           rssi,
+          hopCount: hops,
           hops,
           payloadType,
           rawHex,
@@ -7731,8 +7858,33 @@ window.closeEditScopeModal = () => {
       }
     }
 
+    // Determine track points: prefer dedicated TRAIL entries if present
+    const trackPoints = [];
+    if (trailPoints.length > 0) {
+      let lastTLat = null, lastTLng = null;
+      trailPoints.forEach(pt => {
+        if (lastTLat === null || calculateDistanceKm(lastTLat, lastTLng, pt[1], pt[0]) >= 0.005) {
+          trackPoints.push(pt);
+          lastTLat = pt[1];
+          lastTLng = pt[0];
+        }
+      });
+    } else {
+      // Fallback for legacy CSVs without TRAIL entries: build smooth track from logs with 5m threshold
+      let lastTLat = null, lastTLng = null;
+      logs.forEach(l => {
+        if (l.lat && l.lng && (l.lat !== 0 || l.lng !== 0)) {
+          if (lastTLat === null || calculateDistanceKm(lastTLat, lastTLng, l.lat, l.lng) >= 0.005) {
+            trackPoints.push([l.lng, l.lat]);
+            lastTLat = l.lat;
+            lastTLng = l.lng;
+          }
+        }
+      });
+    }
+
     if (logs.length === 0 && trackPoints.length === 0) {
-      showToastMessage("⚠️ No valid GPS records found in CSV.");
+      showToastMessage("⚠️ No valid log entries found in file.");
       return;
     }
 
@@ -7940,6 +8092,14 @@ window.closeEditScopeModal = () => {
     }
     if (typeof window.checkWebserverConnectivity === 'function') {
       window.checkWebserverConnectivity();
+    }
+    const chkAuto = document.getElementById('chkAutoReply');
+    const txtAutoMsg = document.getElementById('txtAutoReplyMessage');
+    if (chkAuto) {
+      chkAuto.checked = localStorage.getItem('auto_reply_enabled') === 'true';
+    }
+    if (txtAutoMsg) {
+      txtAutoMsg.value = localStorage.getItem('auto_reply_message') || "🚗 Meshcore Wardrive Active - Auto-Reply";
     }
   };
 

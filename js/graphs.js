@@ -134,8 +134,15 @@ class SignalGraphRenderer {
       if (!this.seriesMap.has(hexId)) {
         this.seriesMap.set(hexId, []);
       }
+      const series = this.seriesMap.get(hexId);
       this.displayNameMap.set(hexId, name);
-      this.seriesMap.get(hexId).push({ timestamp: ts, rssi });
+
+      let filteredRssi = rssi;
+      if (series.length > 0) {
+        filteredRssi = (series[series.length - 1].rssi * 0.4) + (rssi * 0.6);
+      }
+
+      series.push({ timestamp: ts, rssi: filteredRssi });
     });
 
     this.updateScaling();

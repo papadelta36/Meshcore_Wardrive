@@ -1,6 +1,7 @@
 /**
  * MeshCore Scope Engine for Web App
  * Handles Region Scopes (#be, #nl, #vlaanderen, etc.), SHA-256 scope keys, and HMAC-SHA256 transport codes.
+ * Optimized with CryptoKey caching and parallel WebCrypto thread execution for ultra-fast scope detection.
  */
 
 const MeshCoreScope = {
@@ -20,6 +21,7 @@ const MeshCoreScope = {
     "#de", "#nrw", "#aachen", "#koeln", "#duesseldorf", "#fr"
   ]),
   keyCache: new Map(),
+  hmacKeyCache: new Map(),
 
   init() {
     const saved = localStorage.getItem("meshcore_learned_scopes");
@@ -72,6 +74,28 @@ const MeshCoreScope = {
     }
   },
 
+  async getHmacCryptoKey(scopeName) {
+    const normalized = this.normalize(scopeName);
+    if (this.hmacKeyCache.has(normalized)) {
+      return this.hmacKeyCache.get(normalized);
+    }
+
+    const scopeKey = await this.calculateKey(normalized);
+    try {
+      const key = await crypto.subtle.importKey(
+        "raw",
+        scopeKey,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      this.hmacKeyCache.set(normalized, key);
+      return key;
+    } catch (e) {
+      return null;
+    }
+  },
+
   async calculateTransportCode(scopeKey, payloadType, payload) {
     try {
       const key = await crypto.subtle.importKey(
@@ -110,16 +134,39 @@ const MeshCoreScope = {
     const receivedCode = (packet.transportCodes[0] & 0xFF) | ((packet.transportCodes[1] & 0xFF) << 8);
     const rawPayload = packet.payload ? (packet.payload.rawPayload || new Uint8Array(0)) : new Uint8Array(0);
 
+    const msg = new Uint8Array(1 + rawPayload.length);
+    msg[0] = packet.payloadType & 0xFF;
+    msg.set(rawPayload, 1);
+
     const scopes = Array.from(this.learnedScopes);
-    for (const scopeName of scopes) {
-      const key = await this.calculateKey(scopeName);
-      const code = await this.calculateTransportCode(key, packet.payloadType, rawPayload);
-      if (code === receivedCode) {
-        if (scopeName && scopeName.startsWith('#')) {
-          this.addLearnedScope(scopeName);
-        }
-        return scopeName;
+
+    // Parallel HMAC evaluation across browser WebCrypto threads
+    const checks = scopes.map(async (scopeName) => {
+      try {
+        const hmacKey = await this.getHmacCryptoKey(scopeName);
+        if (!hmacKey) return null;
+
+        const sigBuffer = await crypto.subtle.sign("HMAC", hmacKey, msg);
+        const sig = new Uint8Array(sigBuffer);
+
+        let code = (sig[0] & 0xFF) | ((sig[1] & 0xFF) << 8);
+        if (code === 0x0000) code = 0x0001;
+        if (code === 0xFFFF) code = 0xFFFE;
+
+        return code === receivedCode ? scopeName : null;
+      } catch (e) {
+        return null;
       }
+    });
+
+    const results = await Promise.all(checks);
+    const matchedScope = results.find(s => s !== null);
+
+    if (matchedScope) {
+      if (matchedScope.startsWith('#')) {
+        this.addLearnedScope(matchedScope);
+      }
+      return matchedScope;
     }
 
     return `ID: 0x${receivedCode.toString(16).padStart(4, '0').toUpperCase()}`;

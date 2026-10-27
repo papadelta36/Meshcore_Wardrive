@@ -217,9 +217,12 @@ class MeshcoreBleManager {
     this.currentSyncChannelIdx = 0;
     this.emptyChannelSequenceCount = 0;
 
-    // Clear previously hardcoded/synced channels before fresh sync
+    // Clear previously hardcoded/synced channels before fresh sync, keeping default Public channel 0
     if (typeof window.clearSyncedChannels === 'function') {
       window.clearSyncedChannels();
+      if (window.syncedChannels && typeof DEFAULT_PUBLIC_PSK !== 'undefined') {
+        window.syncedChannels.push({ index: 0, name: "Public", psk: DEFAULT_PUBLIC_PSK, scope: null, isVisible: true });
+      }
     }
 
     await this.requestNextChannelIndex();

@@ -6,7 +6,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Meshcore Signaal Meter & Wardrive Web v1.11</title>
+  <title>Meshcore Signaal Meter & Wardrive Web v1.12</title>
 
   <!-- Anti-Cache HTTP Headers for Smartphone Local Servers -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
@@ -49,8 +49,8 @@
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <!-- FontAwesome -->
   <link rel="stylesheet" href="./vendor/fontawesome/all.min.css" />
-  <!-- Custom Style (Auto-Busted) -->
-  <script>document.write('<link rel="stylesheet" href="./css/style.css?v=' + Date.now() + '">');</script>
+  <!-- Custom Style -->
+  <link rel="stylesheet" href="./css/style.css?v=1.12">
 </head>
 <body>
 
@@ -61,7 +61,7 @@
       <!-- Row 1: Filter Button + Reload + Fullscreen + Hamburger -->
       <div class="header-row-1">
         <button id="btnFilters" class="btn-filter-main" onclick="openFilterHub()">🔍 FILTERS</button>
-        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v1.11</button>
+        <button id="btnHardReset" class="btn-secondary" style="font-size:0.7rem; padding:4px 8px; font-weight:bold; color:#FFEB3B; background:#222; border:1px solid #FFEB3B; border-radius:6px;" title="Force Reload Latest Version" onclick="hardResetAppCache()">⚡ v1.12</button>
         <button id="btnFullscreen" class="btn-fullscreen" title="Toggle Fullscreen" onclick="toggleAppFullscreen()">⛶</button>
         <button id="btnHamburger" class="btn-hamburger" title="System Hub & Settings" onclick="openSystemHub()">≡</button>
       </div>
@@ -170,7 +170,7 @@
 
     <!-- 1. MAP VIEW AREA -->
     <div id="mapContainer" class="content-view map-view-active">
-      <div id="map" onpointerdown="onUserPhysicalMapTouch(event)" ontouchstart="onUserPhysicalMapTouch(event)" onmousedown="onUserPhysicalMapTouch(event)"></div>
+      <div id="map"></div>
 
       <!-- Map Floating Action Buttons (Positioned Identically to Android Layout) -->
       <button id="btnToggleRadar" class="map-btn map-btn-top-start" title="Full Radar">📡</button>
@@ -460,10 +460,10 @@
         <span class="close-modal" onclick="closeAutoReplyModal()">&times;</span>
       </div>
       <div class="modal-body">
-        <label class="cb-label-block"><input type="checkbox" id="chkAutoReply" /> Enable Auto-Reply Bot</label>
+        <label class="cb-label-block"><input type="checkbox" id="chkAutoReply" onchange="localStorage.setItem('auto_reply_enabled', this.checked ? 'true' : 'false')" /> Enable Auto-Reply Bot</label>
         <div class="form-group" style="margin-top:10px;">
           <label class="form-lbl" for="txtAutoReplyMessage">Auto-Reply Response Message:</label>
-          <input type="text" id="txtAutoReplyMessage" value="🚗 Meshcore Wardrive Active - Auto-Reply" class="input-text" />
+          <input type="text" id="txtAutoReplyMessage" value="🚗 Meshcore Wardrive Active - Auto-Reply" class="input-text" oninput="localStorage.setItem('auto_reply_message', this.value.trim())" />
         </div>
       </div>
       <div class="modal-footer">
@@ -564,7 +564,7 @@
           <button class="btn btn-primary" style="width:100%; margin-bottom:8px; font-weight:bold;" onclick="openHelpInfoModal()">📖 User Manual & Legal Notice</button>
 
           <div style="margin-top:10px; padding:10px; background:#121212; border:1px solid #FFEB3B; border-radius:6px; text-align:center;">
-            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.11</div>
+            <div style="font-weight:bold; color:#FFEB3B; font-size:0.9rem;">Meshcore Signaal Meter & Wardrive Web v1.12</div>
             <div style="font-weight:bold; color:#FFFFFF; font-size:0.8rem; margin-top:2px;">Designed by Papa Delta & Gemini</div>
             <div style="font-size:0.75rem; color:#AAA; margin-top:2px;">Contact: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
           </div>
@@ -624,7 +624,7 @@
 
         <!-- CREDITS BANNER -->
         <div style="padding:12px; background:#121212; border:1px solid #FFEB3B; border-radius:8px; text-align:center; margin-bottom:16px;">
-          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.11</h3>
+          <h3 style="color:#FFEB3B; font-size:1.05rem; margin-bottom:4px; font-weight:bold;">Meshcore Signaal Meter & Wardrive Web v1.12</h3>
           <div style="font-weight:bold; color:#FFFFFF; font-size:0.9rem;">Designed by Papa Delta & Gemini</div>
           <div style="font-size:0.8rem; color:#AAA; margin-top:4px;">Contact & Support: <a href="mailto:papadelta.rry36@gmail.com" style="color:#00FFC8; font-weight:bold; text-decoration:none;">papadelta.rry36@gmail.com</a></div>
         </div>
@@ -752,7 +752,7 @@
       </div>
       <div class="modal-body">
         <button class="btn btn-primary" onclick="triggerImportTripFile()" style="width:100%; margin-bottom:12px; font-weight:bold; background:#1E2638; color:#00FFC8; border:1px solid #00FFC8;">📂 Import CSV / KML File from Downloads</button>
-        <input type="file" id="inputImportTripFile" accept=".csv,.kml,.json" style="display:none;" onchange="handleImportTripFile(event)" />
+        <input type="file" id="inputImportTripFile" accept=".csv,.kml,.json,.txt,.log,text/csv,text/plain,application/json" style="display:none;" onchange="handleImportTripFile(event)" />
 
         <div class="form-group-row" style="margin-bottom:12px;">
           <button class="btn btn-primary" onclick="exportSessionJson()">📥 Export JSON</button>

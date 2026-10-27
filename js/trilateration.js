@@ -15,8 +15,14 @@ const TrilaterationEngine = {
     // Filter receptions that match target ID and are direct (0-hop) with valid GPS
     const relevantLogs = allLogs.filter(log => {
       const matchId = log.nodeId && log.nodeId.toUpperCase().trim() === cleanTarget;
-      const isDirect = !log.meshPacket || log.meshPacket.hopCount === 0 || !log.meshPacket.path || log.meshPacket.path.length === 0;
-      const hasGps = log.lat !== 0 && log.lng !== 0;
+
+      const hopVal = (log.meshPacket && log.meshPacket.hopCount !== undefined)
+        ? log.meshPacket.hopCount
+        : (log.hopCount !== undefined ? log.hopCount : (log.hops !== undefined ? log.hops : 0));
+      const hasPath = log.meshPacket && log.meshPacket.path && log.meshPacket.path.length > 1;
+
+      const isDirect = (hopVal === 0) && !hasPath;
+      const hasGps = log.lat !== undefined && log.lng !== undefined && log.lat !== 0 && log.lng !== 0;
       return matchId && isDirect && hasGps;
     });
 
